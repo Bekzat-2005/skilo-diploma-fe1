@@ -159,7 +159,7 @@ const navJourneyCopyByPath: Record<string, NavJourneyCopy> = {
 }
 
 const navSequence = primaryNavLinks
-const navJourneyCards = navSequence.map((link) => {
+const navJourneyCards = navSequence.map((link: { to: string | number; label: string }) => {
   const copy = navJourneyCopyByPath[link.to]
 
   return {
@@ -320,8 +320,8 @@ const handleHomeMouseLeave = () => {
   heroPointer.value = { x: 50, y: 50, active: false }
 }
 
-const navigate = (path: string) => {
-  router.push(path)
+const navigate = (path: string | number) => {
+  router.push(String(path))
 }
 
 onBeforeUnmount(() => {
@@ -468,7 +468,7 @@ onBeforeUnmount(() => {
             <h3>{{ item.headline }}</h3>
             <p>{{ item.description }}</p>
             <div class="nav-journey-actions">
-              <button class="primary" @click="navigate(item.to)">{{ item.actionLabel }}</button>
+              <button class="primary" @click="navigate(String(item.to))">{{ item.actionLabel }}</button>
             </div>
           </article>
 

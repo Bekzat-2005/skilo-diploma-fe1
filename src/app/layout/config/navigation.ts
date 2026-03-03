@@ -1,4 +1,4 @@
-export const primaryNavLinks = [
+export const primaryNavLinks: any[] = [
   {
     to: "/",
     label: "О проекте",
@@ -26,7 +26,7 @@ export const primaryNavLinks = [
   },
   {
     to: "/knowledge-graph",
-    label: "Knowledge graph",
+    label: "Слабые стороны",
     iconPaths: ["M5 19V9l5-4 5 4v10", "M5 13h10", "M12 9v10"]
   },
   {
