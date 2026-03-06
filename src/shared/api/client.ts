@@ -1,5 +1,5 @@
 export * from "./types"
-
+import axios from "axios";
 import { createAuthService } from "./services/auth.service"
 import { createCompanyService } from "./services/company.service"
 import { createInterviewService } from "./services/interview.service"
@@ -8,14 +8,31 @@ import { createRoadmapsService } from "./services/roadmaps.service"
 import { createSocialService } from "./services/social.service"
 import { createVacanciesService } from "./services/vacancies.service"
 
+
+const axiosInstance = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || "http://localhost:5002/api",
+});
+
+// Токенді автоматты түрде әр запросқа қосу
+axiosInstance.interceptors.request.use((config) => {
+  const token = localStorage.getItem("token");
+  if (token && config.headers) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+}, (error) => {
+  return Promise.reject(error);
+});
+
 export const api = {
-  ...createAuthService(),
-  ...createRoadmapsService(),
-  ...createSocialService(),
-  ...createLeaderboardService(),
-  ...createVacanciesService(),
-  ...createInterviewService(),
-  ...createCompanyService()
-}
+  ...createAuthService(axiosInstance),
+  // ...createRoadmapsService(axiosInstance),
+  // ...createRoadmapsService(),
+  // ...createSocialService(),
+  // ...createLeaderboardService(),
+  // ...createVacanciesService(),
+  // ...createInterviewService(),
+  // ...createCompanyService()
+};
 
 export type ApiClient = typeof api

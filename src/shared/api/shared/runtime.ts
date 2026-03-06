@@ -1,6 +1,6 @@
 import { mockLoginResponse } from "@/shared/mocks/mockData"
 
-export const USE_MOCK = true
+// export const USE_MOCK = true
 
 export const delay = (ms: number) =>
   new Promise((resolve) => setTimeout(resolve, ms))
