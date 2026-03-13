@@ -9,7 +9,7 @@ import { createSocialService } from "./services/social.service"
 import { createVacanciesService } from "./services/vacancies.service"
 
 
-const axiosInstance = axios.create({
+export const axiosInstance = axios.create({
   baseURL: import.meta.env.VITE_API_URL || "http://localhost:5002/api",
 });
 
@@ -26,11 +26,11 @@ axiosInstance.interceptors.request.use((config) => {
 
 export const api = {
   ...createAuthService(axiosInstance),
-  // ...createRoadmapsService(axiosInstance),
+  ...createRoadmapsService(axiosInstance),
   // ...createRoadmapsService(),
-  // ...createSocialService(),
-  // ...createLeaderboardService(),
-  // ...createVacanciesService(),
+  ...createSocialService(axiosInstance),
+  ...createLeaderboardService(axiosInstance),
+  ...createVacanciesService(axiosInstance),
   // ...createInterviewService(),
   // ...createCompanyService()
 };

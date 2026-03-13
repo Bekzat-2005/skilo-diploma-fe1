@@ -12,4 +12,8 @@ export const createAuthService = (http: AxiosInstance) => ({
     const { data } = await http.post<AuthResponse>("auth/login", payload);
     return data;
   },
+  async getMe(): Promise<any> {
+    const { data } = await http.get("auth/me");
+    return data;
+  }
 });

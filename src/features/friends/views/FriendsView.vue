@@ -13,6 +13,9 @@ import { resolveApiError } from "@/shared/utils/resolveApiError"
 
 const authStore = useAuthStore()
 
+const currentAiQuestions = ref<any[]>([])
+const isAiLoading = ref(false)
+
 const loading = ref(true)
 const saving = ref(false)
 const error = ref<string | null>(null)
@@ -30,6 +33,7 @@ const challengeMessage = ref<string | null>(null)
 const challengeError = ref<string | null>(null)
 const challengeRoadmapByUserId = ref<Record<number, string>>({})
 const activeChallengeDraft = ref<{
+  id?: string
   opponentUserId: number
   opponentName: string
   roadmapId: string
@@ -87,13 +91,18 @@ const ensureChallengeRoadmapSelection = () => {
 }
 
 const loadChallenges = async (userId: number | null) => {
-  const [challengesData, notificationsData] = await Promise.all([
-    friendsApi.getFriendChallenges(userId),
-    friendsApi.getFriendChallengeNotifications(userId)
-  ])
+  try {
+    const [challengesData, notificationsData] = await Promise.all([
+      friendsApi.getFriendChallenges(userId),
+      friendsApi.getFriendChallengeNotifications(userId)
+    ])
 
-  challenges.value = challengesData
-  challengeNotifications.value = notificationsData
+    challenges.value = challengesData
+    challengeNotifications.value = notificationsData
+    console.log("Хабарламалар жүктелді:", challengeNotifications.value)
+  } catch (err) {
+    console.error("Жүктеу қатесі:", err)
+  }
 }
 
 const loadData = async () => {
@@ -264,17 +273,12 @@ const activeChallengeAssessment = computed(() => {
 })
 
 const challengeQuizAnsweredCount = computed(() => {
-  const assessment = activeChallengeAssessment.value
-  if (!assessment) return 0
-
-  return assessment.questions.filter((question) => challengeQuizAnswers.value[question.id] !== undefined).length
+  return currentAiQuestions.value.filter((q) => challengeQuizAnswers.value[q.id] !== undefined).length
 })
 
 const challengeQuizAllAnswered = computed(() => {
-  const assessment = activeChallengeAssessment.value
-  if (!assessment) return false
-
-  return assessment.questions.every((question) => challengeQuizAnswers.value[question.id] !== undefined)
+  if (currentAiQuestions.value.length === 0) return false
+  return currentAiQuestions.value.every((q) => challengeQuizAnswers.value[q.id] !== undefined)
 })
 
 const challengeQuizTimerText = computed(() => {
@@ -409,27 +413,35 @@ const formatChallengeTime = (seconds: number | null) => {
 }
 
 const challengeStatusText = (challenge: FriendChallenge) => {
+  const currentUserId = authStore.user?.id ?? null;
+  // ID-лерді міндетті түрде Number-ге айналдырып салыстырамыз
+  const curId = currentUserId ? Number(currentUserId) : null;
+  
+  const isChallenger = Number(challenge.challengerUserId) === curId;
+  const opponentName = isChallenger ? challenge.opponentName : challenge.challengerName;
+
   if (challenge.status === "waiting_opponent") {
-    return `Вызов активен: ждём прохождение теста другом по направлению «${challenge.roadmapTitle}».`
+    return `⏳ ${opponentName} жауабын күтудеміз...`;
   }
 
-  if (challenge.winnerUserId === null) {
-    return `Ничья: вы ${challenge.challengerScore}% (${formatChallengeTime(challenge.challengerDurationSec)}), ${
-      challenge.opponentName
-    } ${challenge.opponentScore ?? 0}% (${formatChallengeTime(challenge.opponentDurationSec)}).`
+  const myScore = isChallenger ? challenge.challengerScore : (challenge.opponentScore ?? 0);
+  const myTime = isChallenger ? challenge.challengerDurationSec : (challenge.opponentDurationSec ?? 0);
+  const oppScore = isChallenger ? (challenge.opponentScore ?? 0) : challenge.challengerScore;
+  const oppTime = isChallenger ? (challenge.opponentDurationSec ?? 0) : challenge.challengerDurationSec;
+
+  // Жеңімпазды тексеру (ID типіне қарамастан Number арқылы)
+  if (!challenge.winnerUserId && challenge.status === 'completed') {
+     return `🤝 Тең түсті: ${myScore}% (${formatChallengeTime(myTime)})`;
   }
 
-  const currentUserId = authStore.user?.id ?? null
-  const isWin = challenge.winnerUserId === currentUserId
+  console.log(challenge.winnerUserId, curId)
 
-  return isWin
-    ? `Вы выиграли: ${challenge.challengerScore}% (${formatChallengeTime(challenge.challengerDurationSec)}) против ${
-        challenge.opponentScore ?? 0
-      }% (${formatChallengeTime(challenge.opponentDurationSec)}).`
-    : `${challenge.opponentName} выиграл(а): ${challenge.opponentScore ?? 0}% (${formatChallengeTime(
-        challenge.opponentDurationSec
-      )}) против ${challenge.challengerScore}% (${formatChallengeTime(challenge.challengerDurationSec)}).`
-}
+  const iWon = Number(challenge.winnerUserId) === curId;
+
+  return iWon 
+    ? `🎉 Сіз жеңдіңіз! ${myScore}% vs ${oppScore}%` 
+    : `💀 Сіз жеңілдіңіз: ${myScore}% vs ${oppScore}%`;
+};
 
 const markChallengeNotificationRead = async (challengeId: string) => {
   try {
@@ -460,21 +472,15 @@ const closeChallengeQuiz = (options: { keepGlobalError?: boolean } = {}) => {
   void exitChallengeFullscreen()
 }
 
+// FriendsView.vue ішіндегі осы функцияны толық ауыстырыңыз:
+
+// Осы функцияны мынаған ауыстырыңыз:
 const openChallengeQuiz = async (participantUserId: number) => {
-  challengeError.value = null
-  challengeMessage.value = null
-  challengeQuizError.value = null
-
   const roadmapId = getChallengeRoadmapId(participantUserId)
-  if (!roadmapId) {
-    challengeError.value = "Не удалось определить направление для вызова"
-    return
-  }
-
   const roadmap = roadmapRows.value.find((item) => item.roadmapId === roadmapId)
   const participant = participants.value.find((item) => item.userId === participantUserId)
 
-  if (!participant || participant.isCurrentUser) return
+  if (!participant) return
 
   activeChallengeDraft.value = {
     opponentUserId: participantUserId,
@@ -482,67 +488,133 @@ const openChallengeQuiz = async (participantUserId: number) => {
     roadmapId,
     roadmapTitle: roadmap?.title ?? roadmapId
   }
-  challengeQuizAnswers.value = {}
-  challengeQuizStartedAt.value = Date.now()
 
-  if (!activeChallengeAssessment.value) {
-    challengeQuizError.value = "Для этого направления пока нет теста соревнования"
-    return
+  isAiLoading.value = true
+  try {
+    const userId = authStore.user?.id ?? null
+    const response = await friendsApi.createFriendChallenge(userId, {
+      opponentUserId: participantUserId,
+      roadmapId,
+      roadmapTitle: roadmap?.title ?? roadmapId,
+      challengerScore: 0,
+      challengerDurationSec: 0
+    })
+
+    // Бэкендтен келген ID-ді draft-қа сақтаймыз
+    if (activeChallengeDraft.value) {
+      activeChallengeDraft.value.id = response.id; // Енді бұл жерде ID бар
+    }
+
+    currentAiQuestions.value = response.quizData || []
+    challengeQuizAnswers.value = {}
+    challengeQuizStartedAt.value = Date.now()
+
+    await enterChallengeFullscreen()
+    enableChallengeQuizProtection()
+  } catch (err) {
+    // ...
+  } finally {
+    isAiLoading.value = false
   }
-
-  await nextTick()
-  const fullScreenEntered = await enterChallengeFullscreen()
-
-  if (!fullScreenEntered) {
-    closeChallengeQuiz({ keepGlobalError: true })
-    challengeError.value = "Не удалось включить полноэкранный режим. Разрешите fullscreen и попробуйте снова."
-    return
-  }
-
-  const totalQuestions = activeChallengeAssessment.value.questions.length
-  startChallengeQuizTimer(totalQuestions * CHALLENGE_QUIZ_SECONDS_PER_QUESTION)
-  enableChallengeQuizProtection()
 }
+
+const calculateScore = () => {
+  if (currentAiQuestions.value.length === 0) return 0;
+  let correct = 0;
+  
+  currentAiQuestions.value.forEach((q) => {
+    const userAnswer = challengeQuizAnswers.value[q.id];
+    
+    // AI-дан келген дұрыс жауап индексі
+    const correctAnswer = q.correctOption !== undefined ? q.correctOption : q.correctIndex;
+    
+    console.log(`Сұрақ ID ${q.id}: Пайдаланушы жауабы: ${userAnswer}, Дұрыс жауап: ${correctAnswer}`);
+
+    if (userAnswer === correctAnswer) {
+      correct++;
+    }
+  });
+  
+  const finalScore = Math.round((correct / currentAiQuestions.value.length) * 100);
+  console.log("Общий очко:", finalScore);
+  return finalScore;
+};
 
 const submitChallengeQuiz = async () => {
-  if (!activeChallengeDraft.value) return
-  if (!activeChallengeAssessment.value || !challengeQuizAllAnswered.value) return
+  if (!activeChallengeDraft.value) return;
 
-  const assessment = activeChallengeAssessment.value
-  const draft = activeChallengeDraft.value
-
-  const totalScore = assessment.questions.reduce((sum, question) => sum + (challengeQuizAnswers.value[question.id] ?? 0), 0)
-  const maxScore = assessment.questions.reduce((sum, question) => {
-    const questionMax = Math.max(...question.options.map((option) => option.score))
-    return sum + questionMax
-  }, 0)
-  const challengerScore = Math.max(1, Math.round((totalScore / Math.max(1, maxScore)) * 100))
-  const startedAt = challengeQuizStartedAt.value ?? Date.now()
-  const challengerDurationSec = Math.max(1, Math.round((Date.now() - startedAt) / 1000))
+  const score = calculateScore();
+  const duration = Math.round((Date.now() - (challengeQuizStartedAt.value || 0)) / 1000);
 
   try {
-    challengeQuizSubmitting.value = true
-    challengeActionUserId.value = draft.opponentUserId
-    const userId = authStore.user?.id ?? null
-    await friendsApi.createFriendChallenge(userId, {
-      opponentUserId: draft.opponentUserId,
-      roadmapId: draft.roadmapId,
-      challengerScore,
-      challengerDurationSec
-    })
-    await loadChallenges(userId)
-    closeChallengeQuiz()
+    challengeQuizSubmitting.value = true;
+    const userId = authStore.user?.id || null;
 
-    challengeMessage.value = `Вы прошли тест и бросили вызов ${draft.opponentName}. Ваш результат скрыт до прохождения теста другом.`
+    // СЕРВЕРГЕ ЖІБЕРУ:
+    // Бірінші адамда ID жаңа құрылған жарыстан келеді (activeChallengeDraft.value.id)
+    // Екінші адамда ол хабарламадан келеді
+    const challengeId = activeChallengeDraft.value.id;
+
+    if (!challengeId) {
+      console.error("Challenge ID табылмады!");
+      return;
+    }
+
+    await friendsApi.completeFriendChallenge(userId, challengeId, {
+      challengeId: challengeId,
+      score: score,
+      durationSec: duration
+    });
+
+    // МЫНА ЖЕР ӨТЕ МАҢЫЗДЫ:
+    // Сервер жауап берген соң, экранды бірден жабу
+    closeChallengeQuiz(); 
+    await loadChallenges(userId);
+    
+    // Егер жеңімпаз анықталса, тізім автоматты түрде жаңаруы тиіс
+    alert("Нәтиже сақталды!");
+
   } catch (err) {
-    const message = resolveApiError(err, "Не удалось отправить вызов").message
-    challengeQuizError.value = message
-    challengeError.value = message
+    console.error("Сақтау қатесі:", err);
+    alert("Нәтижені жіберу мүмкін болмады.");
   } finally {
-    challengeQuizSubmitting.value = false
-    challengeActionUserId.value = null
+    challengeQuizSubmitting.value = false;
   }
-}
+};
+
+const acceptFriendChallenge = async (challengeId: string) => {
+  try {
+    const challenge = challenges.value.find(c => c.id === challengeId);
+    
+    if (!challenge || !challenge.quizData) {
+      challengeError.value = "Сұрақтар табылмады.";
+      return;
+    }
+
+    const fullScreenEntered = await enterChallengeFullscreen();
+    if (!fullScreenEntered) return;
+
+    currentAiQuestions.value = challenge.quizData; 
+    
+    activeChallengeDraft.value = {
+      id: challenge.id, // Атауы 'id' болуы шарт, сонда submit көреді
+      opponentUserId: challenge.challengerUserId,
+      opponentName: challenge.challengerName || "Сіздің досыңыз",
+      roadmapId: challenge.roadmapId,
+      roadmapTitle: challenge.roadmapTitle,
+    };
+
+    challengeQuizAnswers.value = {};
+    challengeQuizStartedAt.value = Date.now();
+
+    startChallengeQuizTimer(currentAiQuestions.value.length * CHALLENGE_QUIZ_SECONDS_PER_QUESTION);
+    enableChallengeQuizProtection();
+
+  } catch (err) {
+    console.error(err);
+    challengeError.value = "Тестті бастау мүмкін болмады.";
+  }
+};
 
 const activeParticipantRadar = computed(() => {
   if (activeRadarUserId.value === null) return null
@@ -557,8 +629,11 @@ const closeParticipantRadar = () => {
   activeRadarUserId.value = null
 }
 
-onMounted(() => {
+onMounted(async() => {
   void loadData()
+  if (authStore.token) {
+    await authStore.fetchMe()
+  }
 })
 
 onBeforeUnmount(() => {
@@ -661,33 +736,36 @@ onBeforeUnmount(() => {
             <strong>Global IT Root</strong>
           </div>
 
-          <section v-if="challengeNotifications.length" class="challenge-notifications">
-            <p class="section-title">Уведомления соревнований</p>
-            <article v-for="notification in challengeNotifications" :key="notification.id" class="challenge-note">
-              <p>{{ notification.message }}</p>
-              <button
-                type="button"
-                class="secondary tiny"
-                :disabled="challengeNotificationId === notification.challengeId"
-                @click="markChallengeNotificationRead(notification.challengeId)"
-              >
-                {{ challengeNotificationId === notification.challengeId ? "..." : "Прочитано" }}
-              </button>
-            </article>
-          </section>
+          <div class="challenges-section">
+            <p class="section-title">Приглашений...</p>
+            <div v-if="challengeNotifications.length > 0" class="notif-grid">
+              <div v-for="notif in challengeNotifications" :key="notif.id" class="notif-card pulse-border">
+                <div class="notif-info">
+                  <strong>{{ notif.challengerName }}</strong>
+                  <span>Бағыт: {{ notif.roadmapTitle }}</span>
+                </div>
+                <button class="primary tiny" @click="acceptFriendChallenge(notif.challengeId)">
+                  Принять
+                </button>
+              </div>
+            </div>
+            <p v-else class="muted">Новое приглашении нету.</p>
+          </div>
 
           <section class="challenge-board">
-            <p class="section-title">Мини-соревнования</p>
-            <p v-if="!challenges.length" class="muted">Пока нет вызовов. Бросьте вызов другу на тест по времени.</p>
-            <ul v-else class="challenge-board-list">
-              <li v-for="challenge in challenges" :key="challenge.id">
-                <div>
-                  <strong>{{ challenge.opponentName }}</strong>
-                  <span>{{ challenge.roadmapTitle }}</span>
+            <p class="section-title">Последние соревновании</p>
+            <ul v-if="challenges.length" class="challenge-board-list">
+              <li v-for="challenge in challenges" :key="challenge.id" class="challenge-item">
+                <div class="challenge-info">
+                  <span class="roadmap-badge">{{ challenge.roadmapTitle }}</span>
+                  <p>
+                  {{ challenge.challengerName }} vs {{ challenge.opponentName }}
+                </p>
+                  <p>{{ challengeStatusText(challenge) }}</p>
                 </div>
-                <em>{{ challenge.status === "waiting_opponent" ? "Ожидание друга" : "Завершено" }}</em>
               </li>
             </ul>
+            <p v-else class="muted">Не было соревновании.</p>
           </section>
 
           <p v-if="challengeMessage" class="challenge-feedback success">{{ challengeMessage }}</p>
@@ -737,10 +815,6 @@ onBeforeUnmount(() => {
                       </button>
                     </div>
                   </div>
-
-                  <p v-if="latestChallengeByOpponent[participant.userId]" class="challenge-status">
-                    {{ challengeStatusText(latestChallengeByOpponent[participant.userId]) }}
-                  </p>
                 </div>
               </div>
             </article>
@@ -864,52 +938,33 @@ onBeforeUnmount(() => {
 
               <p v-if="challengeQuizError" class="challenge-feedback error">{{ challengeQuizError }}</p>
 
-              <template v-else-if="activeChallengeAssessment">
-                <div class="challenge-quiz-progress">
-                  <span>{{ challengeQuizAnsweredCount }} из {{ activeChallengeAssessment.questions.length }}</span>
-                  <span v-if="challengeQuizAllAnswered">Готово к отправке</span>
-                </div>
+              <div v-if="activeChallengeDraft" class="quiz-overlay">
+                <div v-if="isAiLoading" class="quiz-loading">AI сұрақтарды дайындап жатыр...</div>
 
-                <div class="challenge-quiz-list">
-                  <article
-                    v-for="(question, index) in activeChallengeAssessment.questions"
-                    :key="question.id"
-                    class="challenge-quiz-item"
-                  >
-                    <div class="challenge-quiz-question">
-                      <strong>{{ index + 1 }}.</strong>
-                      <span>{{ question.text }}</span>
+                <div v-else>
+                  <div v-for="(question, index) in currentAiQuestions" :key="question.id" class="quiz-item">
+                    <p class="quiz-q-text">{{ index + 1 }}. {{ question.question }}</p>
+                    <div class="quiz-options">
+                      <button 
+                        v-for="(option, optIdx) in question.options" 
+                        :key="optIdx"
+                        :class="{ selected: challengeQuizAnswers[question.id] === optIdx }"
+                        @click="challengeQuizAnswers[question.id] = optIdx"
+                      >
+                        {{ option }}
+                      </button>
                     </div>
+                  </div>
 
-                    <div class="challenge-quiz-options">
-                      <label v-for="option in question.options" :key="option.id" class="challenge-quiz-option">
-                        <input
-                          v-model="challengeQuizAnswers[question.id]"
-                          type="radio"
-                          :name="question.id"
-                          :value="option.score"
-                          :disabled="challengeQuizSubmitting"
-                        />
-                        <span>{{ option.label }}</span>
-                      </label>
-                    </div>
-                  </article>
-                </div>
-
-                <div class="challenge-quiz-actions">
-                  <button type="button" class="secondary" :disabled="challengeQuizSubmitting" @click="closeChallengeQuiz()">
-                    Отмена
-                  </button>
-                  <button
-                    type="button"
+                  <button 
                     class="primary"
+                    @click="submitChallengeQuiz" 
                     :disabled="!challengeQuizAllAnswered || challengeQuizSubmitting"
-                    @click="submitChallengeQuiz"
                   >
-                    {{ challengeQuizSubmitting ? "Отправка..." : "Завершить тест и отправить вызов" }}
+                    {{ challengeQuizSubmitting ? 'Жіберілуде...' : 'Вызов тастау' }}
                   </button>
-                </div>
-              </template>
+                </div> 
+              </div>
             </article>
           </div>
         </div>
@@ -1802,5 +1857,43 @@ onBeforeUnmount(() => {
   .radar-modal-head {
     flex-direction: column;
   }
+}
+
+.pulse-border {
+  border: 1px solid var(--primary);
+  box-shadow: 0 0 10px rgba(var(--primary-rgb), 0.2);
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% { border-color: var(--primary); }
+  50% { border-color: transparent; }
+  100% { border-color: var(--primary); }
+}
+
+.roadmap-badge {
+  background: var(--surface-soft);
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: bold;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+  display: inline-block;
+}
+
+.notif-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.notif-card {
+  background: var(--surface-soft);
+  padding: 12px;
+  border-radius: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 </style>

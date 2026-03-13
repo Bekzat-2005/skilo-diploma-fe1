@@ -34,6 +34,10 @@ export const friendsApi = {
   },
   createFriendChallenge(userId: number | null, payload: CreateFriendChallengePayload): Promise<FriendChallenge> {
     return api.createFriendChallenge(userId, payload)
+  },
+  // достар тізімінің соңына қосыңыз
+  completeFriendChallenge(userId: number | null, challengeId: string, payload: any): Promise<void> {
+    return api.completeFriendChallenge(userId, challengeId, payload)
   }
 }
 

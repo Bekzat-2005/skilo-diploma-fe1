@@ -1,74 +1,33 @@
-import { mockDefaultRoadmapCollection, mockRoadmapProgressResponse } from "@/shared/mocks/mockData"
+// roadmaps.service.ts
+import { AxiosInstance } from "axios";
+import type { RoadmapProgressItem, UserActivityDay } from "../types";
 
-import type { RoadmapProgressItem, UserActivityDay } from "../types"
-import { getActivityFromUserActions } from "../shared/roadmaps.helpers"
-import { delay, resolveMockUserId, USE_MOCK } from "../shared/runtime"
-import { getCollectionDb, saveCollectionDb } from "../shared/storage"
-
-export const createRoadmapsService = () => {
-  const loadUserCollection = async (resolvedUserId: number): Promise<string[]> => {
-    if (USE_MOCK) {
-      return await delay(250).then(() => {
-        const db = getCollectionDb()
-        return db[String(resolvedUserId)] ?? [...mockDefaultRoadmapCollection]
-      })
-    }
-
-    await delay(600)
-    return []
-  }
-
-  const persistUserCollection = async (resolvedUserId: number, roadmapIds: string[]): Promise<string[]> => {
-    if (USE_MOCK) {
-      return await delay(250).then(() => {
-        const db = getCollectionDb()
-        db[String(resolvedUserId)] = [...new Set(roadmapIds)]
-        saveCollectionDb(db)
-        return db[String(resolvedUserId)]
-      })
-    }
-
-    await delay(600)
-    return roadmapIds
-  }
-
+// Енді функция axiosInstance (http) қабылдайды
+export const createRoadmapsService = (http: AxiosInstance) => {
   return {
-    async getRoadmapProgress(_userId: number | null): Promise<RoadmapProgressItem[]> {
-      if (USE_MOCK) {
-        return await delay(350).then(() => mockRoadmapProgressResponse)
-      }
-
-      await delay(700)
-      return []
+    async getRoadmapProgress(): Promise<RoadmapProgressItem[]> {
+      const { data } = await http.get<RoadmapProgressItem[]>("/roadmaps/progress");
+      return data;
     },
 
-    async getUserRoadmapCollection(userId: number | null): Promise<string[]> {
-      const resolvedUserId = resolveMockUserId(userId)
-      return loadUserCollection(resolvedUserId)
+    async getUserRoadmapCollection(): Promise<string[]> {
+      const { data } = await http.get<string[]>("/roadmaps/collection");
+      return data;
     },
 
-    async updateUserRoadmapCollection(userId: number | null, roadmapIds: string[]): Promise<string[]> {
-      const resolvedUserId = resolveMockUserId(userId)
-      return persistUserCollection(resolvedUserId, roadmapIds)
+    async updateUserRoadmapCollection(roadmapIds: string[]): Promise<string[]> {
+      const { data } = await http.post<string[]>("/roadmaps/collection", { roadmapIds });
+      return data;
     },
 
-    async removeUserRoadmapFromCollection(userId: number | null, roadmapId: string): Promise<string[]> {
-      const resolvedUserId = resolveMockUserId(userId)
-      const current = await loadUserCollection(resolvedUserId)
-      const next = current.filter((id) => id !== roadmapId)
-
-      return persistUserCollection(resolvedUserId, next)
+    async removeUserRoadmapFromCollection(roadmapId: string): Promise<string[]> {
+      const { data } = await http.delete<string[]>(`/roadmaps/collection/${roadmapId}`);
+      return data;
     },
 
-    async getUserYearActivity(userId: number | null): Promise<UserActivityDay[]> {
-      resolveMockUserId(userId)
-
-      if (USE_MOCK) {
-        return await delay(280).then(() => getActivityFromUserActions())
-      }
-
-      await delay(700)
-      return []
+    async getUserYearActivity(): Promise<UserActivityDay[]> {
+      const { data } = await http.get<UserActivityDay[]>("/roadmaps/activity");
+      return data;
     }
-  }
-}
+  };
+};

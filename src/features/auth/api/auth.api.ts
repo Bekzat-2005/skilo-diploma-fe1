@@ -6,5 +6,8 @@ export const authApi = {
   },
   register(payload: RegisterPayload): Promise<AuthResponse> {
     return api.register(payload)
+  },
+  getMe(): Promise<any> {
+    return api.getMe() 
   }
 }

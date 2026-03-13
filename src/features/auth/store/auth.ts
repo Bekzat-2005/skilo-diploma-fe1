@@ -17,8 +17,26 @@ interface User {
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(localStorage.getItem('token'))
-  const user = ref<User | null>(null)
-  const isFirstLogin = ref<boolean>(true)
+  const savedUser = localStorage.getItem('user')
+  const user = ref<User | null>(savedUser ? JSON.parse(savedUser) : null)
+  
+  const isFirstLogin = ref<boolean>(user.value?.firstLogin ?? true)
+
+  const fetchMe = async () => {
+    if (!token.value) return
+
+    try {
+      const response = await authApi.getMe()
+      user.value = response
+      isFirstLogin.value = response.firstLogin
+      
+      // Деректерді жаңартып, localStorage-қа сақтап қоямыз
+      localStorage.setItem('user', JSON.stringify(response))
+    } catch (error) {
+      console.error('Сессия аяқталды немесе қате кетті:', error)
+      logout() // Егер токен жарамсыз болса, жүйеден шығарамыз
+    }
+  }
 
   // ===== ACTIONS =====
   const login = async (payload: LoginPayload) => {
@@ -33,6 +51,7 @@ export const useAuthStore = defineStore('auth', () => {
     isFirstLogin.value = response.user.firstLogin
 
     localStorage.setItem('token', response.token)
+    localStorage.setItem('user', JSON.stringify(response.user))
 
     return response
   }
@@ -58,11 +77,15 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null
     isFirstLogin.value = true
     localStorage.removeItem('token')
+    localStorage.removeItem('user')
   }
 
   const setOnboardingDone = () => {
     isFirstLogin.value = false
-    if (user.value) user.value.firstLogin = false
+    if (user.value) {
+      user.value.firstLogin = false
+      localStorage.setItem('user', JSON.stringify(user.value)) // Жаңартылған күйін сақтау
+    }
   }
 
   const setAuth = (newToken: string, newUser: User) => {
@@ -70,6 +93,7 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = newUser
     isFirstLogin.value = newUser.firstLogin
     localStorage.setItem('token', newToken)
+    localStorage.setItem('user', JSON.stringify(newUser))
   }
 
 
@@ -77,6 +101,7 @@ export const useAuthStore = defineStore('auth', () => {
     token,
     user,
     isFirstLogin,
+    fetchMe,
     login,
     register,
     logout,

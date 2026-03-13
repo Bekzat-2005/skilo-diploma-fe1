@@ -2,58 +2,102 @@
 import { computed, onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
 import { vacanciesApi, type Vacancy, type VacancyTaskLeaderboardResponse } from "@/features/vacancies/api/vacancies.api"
-import { resolveApiError } from "@/shared/utils/resolveApiError"
 
 const router = useRouter()
+
+// Штаттар (States)
 const loading = ref(true)
 const error = ref<string | null>(null)
 const vacancies = ref<Vacancy[]>([])
 const leaderboardByVacancy = ref<Record<string, VacancyTaskLeaderboardResponse>>({})
 const openedLeadersVacancyId = ref<string | null>(null)
 
-const levelLabel = (level: Vacancy["level"]) => {
-  if (level === "junior") return "Junior"
-  if (level === "middle") return "Middle"
-  return "Senior"
-}
-
-const employmentLabel = (employment: Vacancy["employment"]) => {
-  if (employment === "full-time") return "Full-time"
-  if (employment === "part-time") return "Part-time"
-  if (employment === "internship") return "Internship"
-  return "Remote"
-}
-
-const sortedVacancies = computed(() => {
-  return [...vacancies.value].sort((a, b) => a.company.localeCompare(b.company))
-})
-
-const openPreparation = (vacancyId: string) => {
-  router.push(`/vacancies/${vacancyId}/preparation`)
-}
-
-const toggleVacancyLeaders = (vacancyId: string) => {
-  openedLeadersVacancyId.value = openedLeadersVacancyId.value === vacancyId ? null : vacancyId
-}
-
+// 1. Деректерді жүктеу функциясы
 const loadVacancies = async () => {
   try {
     loading.value = true
     error.value = null
-    vacancies.value = await vacanciesApi.getVacancies()
-    const leaderboardEntries = await Promise.all(
-      vacancies.value.map(async (item) => [item.id, await vacanciesApi.getVacancyTaskLeaderboard(item.id, null)] as const)
+    const data = await vacanciesApi.getVacancies()
+    
+    // Бэкендтен келген деректі массив екеніне тексеру
+    vacancies.value = Array.isArray(data) ? data : []
+
+    // Әр вакансияның лидербордын алдын-ала немесе қажет болғанда жүктеу
+    // Бұл жерде алғашқы 3 вакансияның лидерлерін жүктеп қоямыз
+    const initialLeaders = await Promise.all(
+      vacancies.value.slice(0, 5).map(async (v) => {
+        try {
+          const lb = await vacanciesApi.getVacancyTaskLeaderboard(v.id, null)
+          return [v.id, lb] as const
+        } catch (e) {
+          return [v.id, { leaders: [], vacancyId: v.id, vacancyTitle: v.title }] as const
+        }
+      })
     )
-    leaderboardByVacancy.value = Object.fromEntries(leaderboardEntries)
+    leaderboardByVacancy.value = Object.fromEntries(initialLeaders)
   } catch (err) {
-    error.value = resolveApiError(err, "Не удалось загрузить вакансии").message
+    console.error("Жүктеу қатесі:", err)
+    error.value = "Вакансии загрузить не удалось. Проверьте соединение с сервером."
   } finally {
     loading.value = false
   }
 }
 
+// 2. Сұрыпталған вакансиялар (Computed)
+const sortedVacancies = computed(() => {
+  if (!vacancies.value) return []
+  // Жаңа шыққандарын жоғары қою
+  return [...vacancies.value].sort((a, b) => b.id.localeCompare(a.id))
+})
+
+// 3. Лидербордты ашу/жабу
+const toggleVacancyLeaders = async (vacancyId: string) => {
+  if (openedLeadersVacancyId.value === vacancyId) {
+    openedLeadersVacancyId.value = null
+    return
+  }
+
+  // Егер осы вакансияның лидерлері әлі жүктелмесе, жүктейміз
+  if (!leaderboardByVacancy.value[vacancyId]) {
+    try {
+      const lb = await vacanciesApi.getVacancyTaskLeaderboard(vacancyId, null)
+      leaderboardByVacancy.value[vacancyId] = lb
+    } catch (e) {
+      console.error("Лидерлерді жүктеу қатесі")
+    }
+  }
+  
+  openedLeadersVacancyId.value = vacancyId
+}
+
+// 4. Дайындық бетіне өту
+const openPreparation = (vacancyId: string) => {
+  router.push(`/vacancies/${vacancyId}/preparation`)
+}
+
+// Көмекші форматтау функциялары
+const levelLabel = (level: string) => {
+  const labels: Record<string, string> = {
+    junior: "Junior",
+    middle: "Middle",
+    senior: "Senior",
+    intern: "Стажер"
+  }
+  return labels[level.toLowerCase()] || level
+}
+
+const employmentLabel = (type: string) => {
+  const types: Record<string, string> = {
+    full_time: "Полная занятость",
+    part_time: "Частичная",
+    remote: "Удаленно",
+    contract: "Контракт"
+  }
+  return types[type.toLowerCase()] || type
+}
+
 onMounted(() => {
-  void loadVacancies()
+  loadVacancies()
 })
 </script>
 
@@ -68,11 +112,11 @@ onMounted(() => {
       <div class="hero-metrics">
         <div class="metric">
           <span>Открытых позиций</span>
-          <strong>{{ sortedVacancies.length }}</strong>
+          <strong>{{ sortedVacancies?.length || 0 }}</strong>
         </div>
         <div class="metric">
           <span>Компаний</span>
-          <strong>{{ new Set(sortedVacancies.map((item) => item.company)).size }}</strong>
+          <strong>{{ new Set(sortedVacancies?.map((item) => item.company) || []).size }}</strong>
         </div>
       </div>
     </header>
@@ -136,7 +180,7 @@ onMounted(() => {
                 {{ vacancy.salaryRange }}
               </span>
               <span class="meta-chip accent">
-                {{ vacancy.realTasks.length }} {{ vacancy.realTasks.length === 1 ? 'задача' : 'задач' }}
+                {{ vacancy.realTasks?.length || 0 }} {{ (vacancy.realTasks?.length || 0) === 1 ? 'задача' : 'задач' }}
               </span>
             </div>
 
