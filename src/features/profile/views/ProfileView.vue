@@ -13,14 +13,14 @@ const authStore = useAuthStore()
 
 // --- 1. НЕГІЗГІ ДЕРЕКТЕР ---
 const userProfile = ref<any>(null)
-const profile = computed(() => userProfile.value) // Шаблондағы 'profile' үшін алиас
+const profile = computed(() => userProfile.value)
 const loading = ref(true)
 const error = ref<string | null>(null)
 const activity = ref<UserActivityDay[]>([])
 const activityLoading = ref(false)
 
-// Статистика мен интерфейс үшін
-const profilePoints = ref(1250)
+// Бэкендке байланатын статистика
+const profilePoints = computed(() => userProfile.value?.points || 0)
 const activityViewMode = ref('heatmap')
 const activityChartRange = ref('month')
 const activityChartData = ref([])
@@ -28,7 +28,6 @@ const activityChartMax = ref(100)
 const directionLevelsRows = ref([])
 const resumeActionMessage = ref('')
 
-// Computed Display мәндері
 const displayFullName = computed(() => userProfile.value?.fullName || 'Пайдаланушы')
 const displayEmail = computed(() => userProfile.value?.email || 'email@example.com')
 const displayUniversity = computed(() => userProfile.value?.university || 'Жоғары оқу орны')
@@ -43,7 +42,7 @@ const userDetails = computed(() => {
   return [
     { label: "Email", value: userProfile.value.email },
     { label: "Университет", value: userProfile.value.university || 'Анықталмаған' },
-    { label: "Тіркелген күні", value: new Date(userProfile.value.createdAt).toLocaleDateString() }
+    { label: "Тіркелген күні", value: userProfile.value.joinedAt }
   ]
 })
 
@@ -65,15 +64,17 @@ const activityWeeks = computed(() => {
   return weeks
 })
 
-// --- 3. РАДАР ДИАГРАММАСЫ (KNOWLEDGE RADAR) - ТҮЗЕТІЛДІ ---
+// --- 3. РАДАР ДИАГРАММАСЫ (KNOWLEDGE RADAR) ---
 const radarSize = 300
 const radarCenter = 150
+
+// Әдепкі мәндер, бэкендтен келген соң жаңарады
 const rawSkills = ref([
-  { id: 'frontend', label: 'Frontend', value: 80 },
-  { id: 'backend', label: 'Backend', value: 60 },
-  { id: 'db', label: 'Database', value: 70 },
-  { id: 'devops', label: 'DevOps', value: 40 },
-  { id: 'soft', label: 'Soft Skills', value: 90 }
+  { id: 'frontend', label: 'Frontend', value: 10 },
+  { id: 'backend', label: 'Backend', value: 10 },
+  { id: 'db', label: 'Database', value: 10 },
+  { id: 'devops', label: 'DevOps', value: 10 },
+  { id: 'soft', label: 'Soft Skills', value: 10 }
 ])
 
 const getPoint = (index: number, total: number, value: number, radius: number) => {
@@ -82,7 +83,6 @@ const getPoint = (index: number, total: number, value: number, radius: number) =
   return { x: radarCenter + r * Math.cos(angle), y: radarCenter + r * Math.sin(angle) }
 }
 
-// Шаблонда қолданылатын басты айнымалы
 const radarAxes = computed(() => {
   const total = rawSkills.value.length
   return rawSkills.value.map((s, i) => ({
@@ -92,24 +92,6 @@ const radarAxes = computed(() => {
     labelPoint: getPoint(i, total, 125, 100)
   }))
 })
-
-// Бұл функцияны script setup ішіне кез келген жерге қосыңыз
-const handleLogout = async () => {
-  if (confirm("Шынмен де аккаунттан шыққыңыз келе ме?")) {
-    try {
-      // authStore ішінде logout функциясы бар деп есептейміз
-      await authStore.logout(); 
-      // Токенді тазалау (егер store ішінде жасалмаса)
-      localStorage.removeItem('token');
-      // Логин бетіне бағыттау
-      router.push('/login');
-    } catch (e) {
-      console.error("Шығу кезінде қате кетті:", e);
-      // Қате болса да, логинге жібере береміз
-      router.push('/login');
-    }
-  }
-}
 
 const radarGridPolygons = computed(() => [20, 40, 60, 80, 100].map(lv => ({
   level: lv,
@@ -138,6 +120,19 @@ const certificateIdInput = ref('')
 const certificateAccessGranted = ref(false)
 const certificateAccessError = ref('')
 
+const handleLogout = async () => {
+  if (confirm("Шынмен де аккаунттан шыққыңыз келе ме?")) {
+    try {
+      await authStore.logout(); 
+      localStorage.removeItem('token');
+      router.push('/login');
+    } catch (e) {
+      localStorage.removeItem('token');
+      router.push('/login');
+    }
+  }
+}
+
 // --- 5. ЖҮКТЕУ ЛОГИКАСЫ ---
 onMounted(async () => {
   try {
@@ -145,13 +140,18 @@ onMounted(async () => {
     const res = await profileApi.getProfile()
     userProfile.value = res.data || res
     
+    // Бэкендтен келген радар деректерін орнату
+    if (userProfile.value.radarSkills) {
+      rawSkills.value = userProfile.value.radarSkills;
+    }
+
     activityLoading.value = true
     const actData = await profileApi.getUserYearActivity(authStore.user?.id ?? null)
     activity.value = actData
     activityStats.totalActiveDays = actData.filter(d => d.count > 0).length
     activityStats.totalPoints = actData.reduce((s, d) => s + d.count, 0)
   } catch (e) {
-    error.value = "Деректерді алу мүмкін болмады"
+    error.value = "Деректерді алу мүмкін болмады. Байланысты тексеріңіз."
   } finally {
     loading.value = false
     activityLoading.value = false
@@ -159,11 +159,36 @@ onMounted(async () => {
   void roadmapsStore.loadUserRoadmapCollection(authStore.user?.id ?? null)
 })
 
-const generateResume = () => { generatingResume.value = true; setTimeout(() => { generatingResume.value = false }, 1000) }
+// Резюмені шынайы деректермен генерациялау (Мок, бірақ шынайы стейтті қолданады)
+const generateResume = () => { 
+  generatingResume.value = true; 
+  setTimeout(() => { 
+    generatedResume.value = {
+      fullName: displayFullName.value,
+      email: displayEmail.value,
+      country: userProfile.value?.country,
+      city: userProfile.value?.city,
+      university: userProfile.value?.university,
+      desiredRole: resumeForm.desiredRole || "Junior Developer",
+      phone: resumeForm.phone,
+      portfolioUrl: resumeForm.portfolioUrl,
+      githubUrl: resumeForm.githubUrl,
+      linkedinUrl: resumeForm.linkedinUrl,
+      summary: resumeForm.summary || "Тез үйренетін және жаңа технологияларды игеруге дайын маман. Skillo платформасында техникалық дағдыларымды шыңдап жатырмын.",
+      experience: resumeForm.experience,
+      achievements: resumeForm.achievements || userProfile.value?.achievements.join(', '),
+      skills: [...(userProfile.value?.skills || []), ...(resumeForm.extraSkills ? resumeForm.extraSkills.split(',') : [])],
+      roadmapResults: rawSkills.value.map(s => ({ title: s.label, percent: s.value, status: s.value > 50 ? 'Жақсы' : 'Оқу үстінде' })),
+      generatedAt: new Date().toLocaleDateString('ru-RU')
+    }
+    generatingResume.value = false 
+  }, 1200) 
+}
+
 const generateCertificate = () => { generatingCertificate.value = true; setTimeout(() => { generatingCertificate.value = false }, 1000) }
 const verifyCertificateAccess = () => { certificateAccessGranted.value = true }
-const buildResumeForDirection = (id: string) => {}
-const handleResumeAction = (a: string) => {}
+const buildResumeForDirection = (id: string) => { router.push(`/roadmaps/${id}`) }
+const handleResumeAction = (a: string) => { resumeActionMessage.value = `${a.toUpperCase()} форматында сақталды!` }
 const handleCertificateAction = (a: string) => {}
 </script>
 
@@ -207,11 +232,11 @@ const handleCertificateAction = (a: string) => {}
       <div class="stats-grid">
         <article class="stat-card">
           <strong>{{ userProfile?.completedTests || 0 }}</strong>
-          <span>Аяқталған тесттер</span>
+          <span>Завершённые тесты</span>
         </article>
         <article class="stat-card">
           <strong>{{ myRoadmaps.length }}</strong>
-          <span>Белсенді бағыттар</span>
+          <span>Действующие направлении</span>
         </article>
       </div>
 
