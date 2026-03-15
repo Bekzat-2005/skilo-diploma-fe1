@@ -1,21 +1,41 @@
-import { api, type RoadmapProgressItem, type UserActivityDay } from "@/shared/api/client"
+import { axiosInstance } from "@/shared/api/client"
 
 export const roadmapsApi = {
-  getUserRoadmapCollection(userId: number | null): Promise<string[]> {
-    return api.getUserRoadmapCollection(userId)
-  },
-  getRoadmapProgress(userId: number | null): Promise<RoadmapProgressItem[]> {
-    return api.getRoadmapProgress(userId)
-  },
-  updateUserRoadmapCollection(userId: number | null, roadmapIds: string[]): Promise<string[]> {
-    return api.updateUserRoadmapCollection(userId, roadmapIds)
-  },
-  removeUserRoadmapFromCollection(userId: number | null, roadmapId: string): Promise<string[]> {
-    return api.removeUserRoadmapFromCollection(userId, roadmapId)
-  },
-  getUserYearActivity(userId: number | null): Promise<UserActivityDay[]> {
-    return api.getUserYearActivity(userId)
-  }
-}
 
-export type { RoadmapProgressItem, UserActivityDay }
+  async getAssessment(roadmapId: string) {
+    const { data } = await axiosInstance.get(`/roadmaps/${roadmapId}/assessment`)
+    return data
+  },
+
+  async submitAssessment(roadmapId: string, answers: any) {
+    const { data } = await axiosInstance.post(`/roadmaps/${roadmapId}/assessment/submit`, {
+      answers
+    })
+    return data
+  },
+
+ async getUserRoadmapCollection() {
+  const { data } = await axiosInstance.get("/roadmaps/collection")
+  return data
+},
+async updateUserRoadmapCollection(userId: number | null, roadmapIds: string[]) {
+  const { data } = await axiosInstance.post(`/roadmaps/collection`, {
+    roadmapIds
+  })
+  return data
+},
+
+  async getRoadmapProgress(userId: number | null) {
+    const { data } = await axiosInstance.get(`/roadmaps/progress`)
+    return data
+  },
+
+async completeOnboarding() {
+  const { data } = await axiosInstance.post("/roadmaps/onboarding/complete")
+  return data
+},
+async getRoadmapTree() {
+  const { data } = await axiosInstance.get("/roadmaps/tree")
+  return data
+}
+}

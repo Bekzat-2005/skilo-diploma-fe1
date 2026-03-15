@@ -1,32 +1,33 @@
 <script setup lang="ts">
-import { ref, computed, onBeforeUnmount } from "vue"
+import { ref, computed, onBeforeUnmount, onMounted } from "vue"
 import { useRoute, useRouter } from "vue-router"
+import { axiosInstance } from "@/shared/api/client"
 import { useTopicProgressStore } from "@/features/roadmaps/store/topicProgress"
-import {
-  mockRoadmap,
-  mockTopicContent,
-  mockTests,
-  RoadmapTopic,
-  TopicTest
-} from "@/shared/mocks/mockRoadmap"
+
 
 const route = useRoute()
 const router = useRouter()
 const topicProgress = useTopicProgressStore()
 
+const topic = ref<any>(null)
+
 const topicId = route.params.id as string
+onMounted(async () => {
+  try {
 
-const topic: RoadmapTopic | undefined = mockRoadmap.find(
-  t => t.id === topicId
-)
+    const { data } = await axiosInstance.get(`/topics/${topicId}`)
 
-const content = mockTopicContent.find(
-  c => c.topicId === topicId
-)
+    topic.value = data
 
-const test: TopicTest | undefined = mockTests.find(
-  t => t.topicId === topicId
-)
+  } catch (e) {
+
+    console.error("Topic load error:", e)
+
+  }
+})
+
+
+
 
 const testStarted = ref(false)
 const selectedAnswers = ref<number[]>([])
@@ -172,7 +173,7 @@ onBeforeUnmount(() => {
       <!-- Topic header -->
       <div class="topic-header">
         <div class="topic-header-main">
-          <h1 class="topic-title">{{ topic.title }}</h1>
+          <h1 class="topic-title">{{  topic?.title }}</h1>
           <div class="topic-meta">
             <span class="badge">{{ topic.level }}</span>
             <span class="badge" :class="topicStatusClass">{{ topicStatusLabel }}</span>

@@ -18,10 +18,8 @@ const parseJson = <T>(value: string | null, fallback: T): T => {
 }
 
 export const useRoadmapsStore = defineStore("roadmaps", () => {
-  const userRoadmapIds = ref<string[]>(
-    parseJson<string[]>(localStorage.getItem(ROADMAP_IDS_STORAGE_KEY), [...mockUserCollection])
-  )
 
+const userRoadmapIds = ref<string[]>([])
   const userRoadmapLevels = ref<Record<string, RoadmapLevel>>(
     parseJson<Record<string, RoadmapLevel>>(localStorage.getItem(ROADMAP_LEVELS_STORAGE_KEY), {})
   )
@@ -66,14 +64,15 @@ export const useRoadmapsStore = defineStore("roadmaps", () => {
     persist()
   }
 
-  const setUserRoadmapCollection = (roadmapIds: string[]) => {
-    userRoadmapIds.value = [...new Set(roadmapIds)]
-    collectionLoaded.value = true
-    persist()
-  }
+const setUserRoadmapCollection = (roadmapIds: string[]) => {
+
+  userRoadmapIds.value = [...new Set(roadmapIds)]
+  collectionLoaded.value = true
+  persist()
+}
 
   const loadUserRoadmapCollection = async (userId: number | null) => {
-    if (collectionLoaded.value) return
+   
 
     const roadmapIds = await roadmapsApi.getUserRoadmapCollection(userId)
     setUserRoadmapCollection(roadmapIds)

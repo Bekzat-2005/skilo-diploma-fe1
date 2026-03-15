@@ -3,6 +3,11 @@ import { ref } from "vue"
 import { useRouter } from "vue-router"
 import { useAuthStore } from "@/features/auth/store/auth"
 import { resolveApiError } from "@/shared/utils/resolveApiError"
+import { roadmapsApi } from "@/features/roadmaps/api/roadmaps.api"
+import { useRoadmapsStore } from "@/features/roadmaps/store/roadmaps"
+import { authApi } from "@/features/auth/api/auth.api"
+
+const roadmapsStore = useRoadmapsStore()
 
 const interests = ref<string[]>([])
 const loading = ref(false)
@@ -32,17 +37,37 @@ const isSelected = (id: string) => interests.value.includes(id)
 
 const handleSubmit = async () => {
   if (interests.value.length === 0) return
+
   try {
     loading.value = true
     error.value = null
+
+    const userId = auth.user?.id
+
+    if (!userId) {
+      throw new Error("User not authenticated")
+    }
+
+    await roadmapsApi.updateUserRoadmapCollection(userId, interests.value)
+
+    await roadmapsApi.completeOnboarding()
+
+    roadmapsStore.setUserRoadmapCollection(interests.value)
+
     auth.setOnboardingDone()
+
     router.push("/roadmaps")
+
   } catch (err) {
     error.value = resolveApiError(err, "Не удалось сохранить настройки").message
   } finally {
     loading.value = false
   }
 }
+
+
+
+
 </script>
 
 <template>

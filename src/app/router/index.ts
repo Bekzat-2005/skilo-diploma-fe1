@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
+import { useAuthStore } from "@/features/auth/store/auth"
 
 const routes = [
   { path: "/", component: () => import("@/features/home/views/HomeView.vue") },
@@ -101,19 +102,29 @@ const roleAwareAuthPaths = new Set(["/login", "/register"])
 const allowedRoles = new Set(["student", "company"])
 
 router.beforeEach((to) => {
-  // Guard role-specific auth screens. If role is missing, user first selects it on /auth.
-  if (!roleAwareAuthPaths.has(to.path)) return true
+  const auth = useAuthStore()
 
-  const role = typeof to.query.role === "string" ? to.query.role : ""
-  if (allowedRoles.has(role)) return true
+  // PUBLIC routes
+  if (to.meta.public) return true
 
-  return {
-    path: "/auth",
-    query: {
-      next: to.path
-    }
+  // not logged in
+  if (!auth.token) {
+    return "/login"
   }
+
+  // onboarding check
+  if (auth.isFirstLogin && to.path !== "/onboarding") {
+    return "/onboarding"
+  }
+
+  // if onboarding already done, prevent going back
+  if (!auth.isFirstLogin && to.path === "/onboarding") {
+    return "/roadmaps"
+  }
+
+  return true
 })
+
 
 const isRecoverableRouteLoadError = (error: unknown) => {
   const message = error instanceof Error ? error.message : String(error)

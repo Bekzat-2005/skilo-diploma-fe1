@@ -5,6 +5,9 @@ import { useRoadmapsStore } from "@/features/roadmaps/store/roadmaps"
 import { useAuthStore } from "@/features/auth/store/auth"
 import { useDailyTasksStore } from "@/features/daily-tasks/store/dailyTasks"
 
+
+
+
 interface CustomRoadmapDraft {
   id: string
   title: string
@@ -33,6 +36,8 @@ const aiForm = ref({
   selectedDirectionIds: [] as string[],
   generationMode: "single" as "single" | "multiple"
 })
+
+
 
 const myRoadmaps = computed(() => roadmapsStore.myRoadmaps)
 const availableRoadmaps = computed(() => roadmapsStore.availableRoadmaps)
@@ -172,21 +177,10 @@ const dailyTasksSummary = computed(() => {
   }
 })
 
-onMounted(() => {
-  void roadmapsStore.loadUserRoadmapCollection(authStore.user?.id ?? null)
-  void roadmapsStore.loadRoadmapProgress(authStore.user?.id ?? null)
-  dailyTasksStore.ensureTodayTasks()
-
-  const rawTracks = localStorage.getItem(CUSTOM_TRACKS_STORAGE_KEY)
-  if (!rawTracks) return
-
-  try {
-    customTracks.value = JSON.parse(rawTracks) as CustomRoadmapDraft[]
-  } catch {
-    customTracks.value = []
-  }
+onMounted(async () => {
+  const userId = authStore.user?.id ?? null
+  await roadmapsStore.loadUserRoadmapCollection(userId)
 })
-
 const removeRoadmap = async (roadmapId: string) => {
   removingRoadmapId.value = roadmapId
   await roadmapsStore.removeRoadmapFromCollection(roadmapId, authStore.user?.id ?? null)

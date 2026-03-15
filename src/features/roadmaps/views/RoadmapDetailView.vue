@@ -1,27 +1,40 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue"
+import { computed, ref, watch, onMounted } from "vue"
 import { useRoute } from "vue-router"
-import {
-  mockRoadmaps,
-  mockRoadmapTrees
-} from "@/shared/mocks/mockRoadmaps"
-import RoadmapTree from "@/features/roadmaps/components/RoadmapTree.vue"
-import RoadmapListNode from "@/features/roadmaps/components/RoadmapListNode.vue"
+import { roadmapsApi } from "@/features/roadmaps/api/roadmaps.api"
+
 import { useTopicProgressStore } from "@/features/roadmaps/store/topicProgress"
 import { mapRoadmapTreeWithProgress } from "@/features/roadmaps/utils/roadmapProgress"
+import RoadmapTree from "@/features/roadmaps/components/RoadmapTree.vue"
+import RoadmapListNode from "@/features/roadmaps/components/RoadmapListNode.vue"
 
 type RoadmapViewMode = "skill_tree" | "classic_list"
 const VIEW_MODE_KEY = "roadmap_view_mode"
 
+const roadmapTreeData = ref<any[]>([])
 const route = useRoute()
 const topicProgress = useTopicProgressStore()
 const roadmapId = route.params.id as string
 
-const roadmap = mockRoadmaps.find(r => r.id === roadmapId)
-const tree = computed(() => {
-  const baseTree = mockRoadmapTrees[roadmapId] ?? []
-  return mapRoadmapTreeWithProgress(baseTree, topicProgress.getResult)
+const roadmap = computed(() => ({
+  id: roadmapId,
+  title: roadmapId.toUpperCase(),
+  description: ""
+}))
+
+
+
+onMounted(async () => {
+  const [tree, progress] = await Promise.all([
+    roadmapsApi.getRoadmapTree(),
+    roadmapsApi.getRoadmapProgress()
+  ])
+
+  roadmapTreeData.value = tree[roadmapId] ?? []
+
+  topicProgress.setProgress(progress)
 })
+const tree = computed(() => roadmapTreeData.value)
 
 const collectLeafNodes = (nodes: typeof tree.value): typeof tree.value => {
   return nodes.flatMap((node) => {
@@ -62,7 +75,8 @@ watch(viewMode, (value) => {
 
 <template>
   <div class="page roadmap-page">
-    <div v-if="!roadmap" class="empty-state">
+    <div v-if="!tree.length" class="empty-state">
+    
       <h2>Roadmap не найден</h2>
     </div>
 

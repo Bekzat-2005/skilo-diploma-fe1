@@ -50,6 +50,10 @@ const getNodeStatusLabel = (node: RoadmapNode) => {
 
   return ""
 }
+async function startTopic(nodeId) {
+  await roadmapsApi.startNode(nodeId)
+  location.reload()
+}
 
 const getNodeClass = (node: RoadmapNode) => ({
   locked: node.status === "locked",

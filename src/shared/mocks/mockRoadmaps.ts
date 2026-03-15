@@ -69,8 +69,8 @@ export const mockRoadmaps: Roadmap[] = [
     recommended: false
   },
   {
-    id: "mobile",
-    title: "Мобильная разработка",
+    id: "ux-ui",
+    title: "ux-ui",
     description: "Flutter / React Native",
     level: "Beginner",
     recommended: false
