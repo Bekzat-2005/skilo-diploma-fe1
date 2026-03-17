@@ -11,10 +11,13 @@ import RoadmapListNode from "@/features/roadmaps/components/RoadmapListNode.vue"
 type RoadmapViewMode = "skill_tree" | "classic_list"
 const VIEW_MODE_KEY = "roadmap_view_mode"
 
+
+
 const roadmapTreeData = ref<any[]>([])
 const route = useRoute()
-const topicProgress = useTopicProgressStore()
 const roadmapId = route.params.id as string
+const topicProgress = useTopicProgressStore()
+const topicId = computed(() => route.params.topicId as string)
 
 const roadmap = computed(() => ({
   id: roadmapId,
@@ -32,7 +35,7 @@ onMounted(async () => {
 
   roadmapTreeData.value = tree[roadmapId] ?? []
 
-  topicProgress.setProgress(progress)
+  topicProgress.setResult(topicId, score, score >= 70)
 })
 const tree = computed(() => roadmapTreeData.value)
 

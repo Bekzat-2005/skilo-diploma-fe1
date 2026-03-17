@@ -5,6 +5,7 @@ import { axiosInstance } from "@/shared/api/client"
 import { useTopicProgressStore } from "@/features/roadmaps/store/topicProgress"
 
 
+
 const route = useRoute()
 const router = useRouter()
 const topicProgress = useTopicProgressStore()
@@ -26,8 +27,25 @@ onMounted(async () => {
   }
 })
 
+const test = ref<any>(null)
 
+const loadTest = async () => {
 
+  try {
+
+    const { data } = await axiosInstance.get(`/topics/${topicId}/test`)
+
+    console.log("TEST DATA:", data)
+
+    test.value = data
+
+  } catch (e) {
+
+    console.error("test load error", e)
+
+  }
+
+}
 
 const testStarted = ref(false)
 const selectedAnswers = ref<number[]>([])
@@ -58,16 +76,16 @@ const topicStatusClass = computed(() => {
   return "status--neutral"
 })
 
-const totalQuestions = computed(() => test?.questions.length ?? 0)
+const totalQuestions = computed(() => test?.questions?.length ?? 0)
 
 const currentQuestion = computed(() => {
   if (!test) return null
-  return test.questions[currentQuestionIndex.value] ?? null
+  return test.value.questions[currentQuestionIndex.value] ?? null
 })
 
 const isLastQuestion = computed(() => {
   if (!test) return false
-  return currentQuestionIndex.value >= test.questions.length - 1
+  return currentQuestionIndex.value >= (test.value?.questions?.length || 0) - 1
 })
 
 const isCurrentQuestionAnswered = computed(() => {
@@ -104,16 +122,20 @@ const startTimer = () => {
   }, 1000)
 }
 
-const startTest = () => {
-  if (!test?.questions.length) return
+const startTest = async () => {
+
+  await loadTest()
+
+  if (!test.value?.questions?.length || 0) return
 
   testStarted.value = true
   selectedAnswers.value = []
   testFinished.value = false
   score.value = 0
   currentQuestionIndex.value = 0
-  remainingSeconds.value = test.questions.length * 45
+  remainingSeconds.value = (test.value?.questions?.length || 0) * 45
   startTimer()
+
 }
 
 const nextQuestion = () => {
@@ -121,24 +143,40 @@ const nextQuestion = () => {
   currentQuestionIndex.value += 1
 }
 
-const finishTest = () => {
-  if (!test) return
+const finishTest = async () => {
+
+  if (!test.value) return
 
   clearTimer()
 
   let correct = 0
 
-  test.questions.forEach((q, index) => {
-    if (selectedAnswers.value[index] === q.correctAnswerIndex) {
+  test.value.questions.forEach((q, index) => {
+    if (selectedAnswers.value[index] === q.correctIndex) {
       correct++
     }
   })
 
-  score.value = Math.round((correct / test.questions.length) * 100)
-  testFinished.value = true
-  topicProgress.setResult(topicId, score.value, score.value >= 70)
-}
+  const total = test.value?.questions?.length || 0
+  const percent = Math.round((correct / total) * 100)
 
+  score.value = percent
+  testFinished.value = true
+
+  try {
+
+    await axiosInstance.post(`/topics/${topicId}/result`, {
+      score: percent
+    })
+
+    // ✅ обновляем store
+    topicProgress.setResult(topicId, percent, percent >= 70)
+
+  } catch (e) {
+    console.error("save result error", e)
+  }
+
+}
 const goBack = () => {
   if (window.history.length > 1) {
     router.back()
@@ -185,12 +223,12 @@ onBeforeUnmount(() => {
       <section v-if="!testStarted" class="section-card">
         <span class="section-label">Теория</span>
         <div class="theory-content">
-          <pre class="theory-pre">{{ content?.theory }}</pre>
+          <pre class="theory-pre">{{ topic?.theory }}</pre>
         </div>
         <div class="section-footer">
           <button
             class="btn btn--primary"
-            :disabled="!test || !test.questions.length"
+          
             @click="startTest"
           >
             Начать тест

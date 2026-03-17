@@ -44,6 +44,7 @@ export const useTopicProgressStore = defineStore("topic-progress", () => {
   return {
     results,
     setResult,
-    getResult
+    getResult,
+  
   }
 })
