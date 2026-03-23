@@ -133,30 +133,45 @@ const handleLogout = async () => {
   }
 }
 
-// --- 5. ЖҮКТЕУ ЛОГИКАСЫ ---
 onMounted(async () => {
   try {
     loading.value = true
+    error.value = null // Қатені тазарту
+
+    // 1. Профиль деректерін алу
     const res = await profileApi.getProfile()
     userProfile.value = res.data || res
     
-    // Бэкендтен келген радар деректерін орнату
     if (userProfile.value.radarSkills) {
       rawSkills.value = userProfile.value.radarSkills;
     }
 
+    // 2. Белсенділік деректерін алу (ТЕК БІР СҰРАНЫС)
     activityLoading.value = true
-    const actData = await profileApi.getUserYearActivity(authStore.user?.id ?? null)
-    activity.value = actData
-    activityStats.totalActiveDays = actData.filter(d => d.count > 0).length
-    activityStats.totalPoints = actData.reduce((s, d) => s + d.count, 0)
+    // Ескерту: Егер profileApi-де getUserYearActivity болса, соны қолданыңыз
+    const actData = await profileApi.getUserYearActivity(); 
+    
+    activity.value = actData; // Бэкендтен келген [{date, count}]
+
+    // Статистиканы есептеу
+    if (Array.isArray(actData)) {
+      activityStats.totalActiveDays = actData.filter(d => d.count > 0).length
+      activityStats.totalPoints = actData.reduce((s, d) => s + (d.count || 0), 0)
+    }
+
   } catch (e) {
-    error.value = "Деректерді алу мүмкін болмады. Байланысты тексеріңіз."
+    console.error("Profile/Activity load error:", e)
+    error.value = "Деректерді алу мүмкін болмады."
   } finally {
     loading.value = false
     activityLoading.value = false
   }
-  void roadmapsStore.loadUserRoadmapCollection(authStore.user?.id ?? null)
+  
+  // Roadmap топтамасын жүктеу
+  const userId = authStore.user?.id ?? null
+  if (userId) {
+    void roadmapsStore.loadUserRoadmapCollection(userId)
+  }
 })
 
 // Резюмені шынайы деректермен генерациялау (Мок, бірақ шынайы стейтті қолданады)

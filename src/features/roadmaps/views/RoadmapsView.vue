@@ -4,9 +4,7 @@ import { useRouter } from "vue-router"
 import { useRoadmapsStore } from "@/features/roadmaps/store/roadmaps"
 import { useAuthStore } from "@/features/auth/store/auth"
 import { useDailyTasksStore } from "@/features/daily-tasks/store/dailyTasks"
-
-
-
+import { roadmapsApi } from "@/features/roadmaps/api/roadmaps.api"
 
 interface CustomRoadmapDraft {
   id: string
@@ -36,8 +34,6 @@ const aiForm = ref({
   selectedDirectionIds: [] as string[],
   generationMode: "single" as "single" | "multiple"
 })
-
-
 
 const myRoadmaps = computed(() => roadmapsStore.myRoadmaps)
 const availableRoadmaps = computed(() => roadmapsStore.availableRoadmaps)
@@ -179,12 +175,30 @@ const dailyTasksSummary = computed(() => {
 
 onMounted(async () => {
   const userId = authStore.user?.id ?? null
-  await roadmapsStore.loadUserRoadmapCollection(userId)
+  aiLoading.value = true // Жүктелу индикаторын қосу
+  
+  try {
+    await roadmapsStore.loadAllRoadmaps()
+    await roadmapsStore.loadUserRoadmapCollection(userId)
+    await roadmapsStore.loadUserProgress()
+
+    const aiData = await roadmapsApi.getMyAiRoadmaps()
+    customTracks.value = aiData // Базадан келген деректерді айнымалыға саламыз
+    
+    console.log("Жүктелген AI карталары:", customTracks.value)
+  } catch (error) {
+    console.error("Деректерді жүктеу қатесі:", error)
+  } finally {
+    aiLoading.value = false
+  }
 })
+
 const removeRoadmap = async (roadmapId: string) => {
-  removingRoadmapId.value = roadmapId
-  await roadmapsStore.removeRoadmapFromCollection(roadmapId, authStore.user?.id ?? null)
-  removingRoadmapId.value = null
+  if (confirm("Бұл бағытты өшіргіңіз келеді ме?")) {
+    removingRoadmapId.value = roadmapId
+    await roadmapsStore.removeRoadmapFromCollection(roadmapId, authStore.user?.id ?? null)
+    removingRoadmapId.value = null
+  }
 }
 
 const persistCustomTracks = () => {
@@ -283,6 +297,39 @@ const generateCustomTrack = async () => {
     aiLoading.value = false
   }
 }
+
+const handleAiGenerate = async () => {
+  if (!aiForm.value.title || !aiForm.value.goal) {
+    aiError.value = "Тақырып пен мақсатты толтыру міндетті!";
+    return;
+  }
+
+  aiLoading.value = true;
+  aiError.value = null;
+
+  try {
+    const generatedRoadmap = await roadmapsApi.generateAiRoadmap(aiForm.value);
+    
+    customTracks.value.unshift(generatedRoadmap);
+    
+    localStorage.setItem(CUSTOM_TRACKS_STORAGE_KEY, JSON.stringify(customTracks.value));
+
+    aiForm.value = {
+      title: "",
+      goal: "",
+      interests: "",
+      selectedDirectionIds: [],
+      generationMode: "single"
+    };
+    
+    alert("AI Roadap сәтті жасалды!");
+  } catch (e: any) {
+    console.error(e);
+    aiError.value = "AI құру кезінде қате кетті. Бэкендті тексеріңіз.";
+  } finally {
+    aiLoading.value = false;
+  }
+};
 </script>
 
 <template>
@@ -439,8 +486,13 @@ const generateCustomTrack = async () => {
             <p v-if="aiError" class="builder-error">{{ aiError }}</p>
 
             <div class="actions-row actions-row--builder">
-              <button class="btn btn--primary" :disabled="aiLoading" @click="generateCustomTrack">
-                {{ aiLoading ? "Генерация..." : "Собрать дорожку через AI" }}
+              <button 
+                class="ai-submit-btn" 
+                :disabled="aiLoading"
+                @click="handleAiGenerate" 
+              >
+                <span v-if="aiLoading">Жүктелуде...</span>
+                <span v-else>Генерациялау</span>
               </button>
             </div>
           </aside>
@@ -460,7 +512,7 @@ const generateCustomTrack = async () => {
               Направления: {{ generatedTrack.directionIds.map((id) => roadmapTitlesMap[id] ?? id).join(", ") }}
             </p>
             <ul class="milestones-list">
-              <li v-for="item in generatedTrack.milestones" :key="item">{{ item }}</li>
+              <li v-for="milestone in track.content || track.milestones" :key="milestone">{{ milestone }}</li>
             </ul>
           </div>
         </div>

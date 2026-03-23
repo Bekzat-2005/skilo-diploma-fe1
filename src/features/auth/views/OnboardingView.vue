@@ -65,9 +65,6 @@ const handleSubmit = async () => {
   }
 }
 
-
-
-
 </script>
 
 <template>

@@ -144,39 +144,42 @@ const nextQuestion = () => {
 }
 
 const finishTest = async () => {
+  if (!test.value) return;
 
-  if (!test.value) return
+  clearTimer();
 
-  clearTimer()
-
-  let correct = 0
-
-  test.value.questions.forEach((q, index) => {
+  // 1. Дұрыс жауаптарды есептеу
+  let correct = 0;
+  test.value.questions.forEach((q: any, index: number) => {
     if (selectedAnswers.value[index] === q.correctIndex) {
-      correct++
+      correct++;
     }
-  })
+  });
 
-  const total = test.value?.questions?.length || 0
-  const percent = Math.round((correct / total) * 100)
+  // 2. Пайызды шығару
+  const totalQuestions = test.value.questions.length;
+  const percentage = Math.round((correct / totalQuestions) * 100);
 
-  score.value = percent
-  testFinished.value = true
+  // 3. UI-ды жаңарту
+  score.value = percentage;
+  testFinished.value = true;
 
   try {
+    // 4. Бэкендке пайызды жіберу
+    const { data } = await axiosInstance.post(`/topics/${topicId}/submit`, {
+      score: percentage
+    });
 
-    await axiosInstance.post(`/topics/${topicId}/result`, {
-      score: percent
-    })
+    // 5. Локалды Store-ды жаңарту (прогресс бірден көрінуі үшін)
+    topicProgress.setResult(topicId, percentage, percentage >= 70);
 
-    // ✅ обновляем store
-    topicProgress.setResult(topicId, percent, percent >= 70)
-
+    console.log("Progress saved:", data.status);
+    
   } catch (e) {
-    console.error("save result error", e)
+    console.error("Нәтижені сақтау мүмкін болмады:", e);
   }
+};
 
-}
 const goBack = () => {
   if (window.history.length > 1) {
     router.back()

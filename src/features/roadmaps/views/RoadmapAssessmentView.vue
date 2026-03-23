@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, ref } from "vue"
+import { computed, ref, onMounted } from "vue"
 import { useRoute, useRouter } from "vue-router"
-import { mockRoadmaps, mockRoadmapAssessments, type RoadmapLevel } from "@/shared/mocks/mockRoadmaps"
-import { useRoadmapsStore } from "@/features/roadmaps/store/roadmaps"
+import { useRoadmapsStore, type RoadmapLevel } from "@/features/roadmaps/store/roadmaps"
 import { useAuthStore } from "@/features/auth/store/auth"
+import { roadmapsApi } from "@/features/roadmaps/api/roadmaps.api"
 
 const route = useRoute()
 const router = useRouter()
@@ -11,43 +11,62 @@ const roadmapsStore = useRoadmapsStore()
 const authStore = useAuthStore()
 
 const roadmapId = route.params.id as string
-const roadmap = mockRoadmaps.find((item) => item.id === roadmapId)
-const assessment = mockRoadmapAssessments[roadmapId]
+const roadmap = computed(() => roadmapsStore.allRoadmaps.find(r => r.id === roadmapId))
+
+const assessment = ref<any>(null)
+const loading = ref(true)
+
+const submitting = ref(false);
 
 const answers = ref<Record<string, number>>({})
 const completed = ref(false)
 const detectedLevel = ref<RoadmapLevel | null>(null)
 
+onMounted(async () => {
+  // Алдымен барлық бағыттар жүктелгеніне көз жеткіземіз
+  await roadmapsStore.loadAllRoadmaps()
+  
+  try {
+    // Бэкендтен ассессмент (бастапқы тест) сұрақтарын алу
+    assessment.value = await roadmapsApi.getAssessment(roadmapId)
+  } catch (e) {
+    console.error("Assessment жүктелмеді", e)
+  } finally {
+    loading.value = false
+  }
+})
+
 const allAnswered = computed(() => {
-  if (!assessment) return false
-  return assessment.questions.every((question) => answers.value[question.id] !== undefined)
+  if (!assessment.value?.questions) return false
+  return assessment.value.questions.every((q: any) => answers.value[q.id] !== undefined)
 })
 
 const answeredCount = computed(() => {
-  if (!assessment) return 0
-  return assessment.questions.filter((q) => answers.value[q.id] !== undefined).length
+  if (!assessment.value?.questions) return 0
+  return assessment.value.questions.filter((q: any) => answers.value[q.id] !== undefined).length
 })
 
-const evaluateLevel = (avgScore: number): RoadmapLevel => {
-  if (avgScore <= 1.5) return "Beginner"
-  if (avgScore <= 2.3) return "Intermediate"
-  return "Advanced"
-}
-
 const submitAssessment = async () => {
-  if (!assessment || !allAnswered.value) return
+  if (!assessment.value || !allAnswered.value || submitting.value) return;
 
-  const total = assessment.questions.reduce((sum, question) => {
-    return sum + (answers.value[question.id] ?? 1)
-  }, 0)
+  try {
+    submitting.value = true; // Жүктелуді бастау
 
-  const avgScore = total / assessment.questions.length
-  const level = evaluateLevel(avgScore)
-
-  detectedLevel.value = level
-  await roadmapsStore.addRoadmapWithLevel(roadmapId, level, authStore.user?.id ?? null)
-  completed.value = true
-}
+    const response = await roadmapsApi.submitAssessment(roadmapId, answers.value);
+    detectedLevel.value = response.level;
+    
+    // Store-ға қосу (Тек локалдық жаңарту, өйткені бэкендте қосылып қойды)
+    await roadmapsStore.loadUserRoadmapCollection(authStore.user?.id ?? null);
+    await roadmapsStore.loadUserProgress(); // Прогресті де қайта жүктеу
+    
+    completed.value = true; // Сәтті аяқталды бетіне өту
+  } catch (error) {
+    console.error("Тестті жіберу кезінде қате шықты", error);
+    alert("Қате кетті. Қайта көріңіз."); // Пайдаланушыға ескерту
+  } finally {
+    submitting.value = false; // Жүктелуді тоқтату
+  }
+};
 
 const goToRoadmap = () => {
   router.push(`/roadmaps/${roadmapId}`)
@@ -115,12 +134,12 @@ const goToRoadmap = () => {
       <div class="submit-row">
         <button
           class="btn-primary"
-          :class="{ disabled: !allAnswered }"
-          :disabled="!allAnswered"
+          :class="{ disabled: !allAnswered || submitting }"
+          :disabled="!allAnswered || submitting"
           @click="submitAssessment"
         >
-          Добавить направление
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+          {{ submitting ? 'Сақталуда...' : 'Добавить направление' }}
+          <svg v-if="!submitting" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
         </button>
       </div>
     </div>

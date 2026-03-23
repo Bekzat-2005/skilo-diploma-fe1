@@ -27,7 +27,7 @@ axiosInstance.interceptors.request.use((config) => {
 export const api = {
   ...createAuthService(axiosInstance),
   ...createRoadmapsService(axiosInstance),
-  // ...createRoadmapsService(),
+  ...createRoadmapsService(axiosInstance),
   ...createSocialService(axiosInstance),
   ...createLeaderboardService(axiosInstance),
   ...createVacanciesService(axiosInstance),

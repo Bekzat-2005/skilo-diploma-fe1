@@ -14,6 +14,7 @@ const VIEW_MODE_KEY = "roadmap_view_mode"
 
 
 const roadmapTreeData = ref<any[]>([])
+const loading = ref(true)
 const route = useRoute()
 const roadmapId = route.params.id as string
 const topicProgress = useTopicProgressStore()
@@ -25,18 +26,27 @@ const roadmap = computed(() => ({
   description: ""
 }))
 
-
-
 onMounted(async () => {
-  const [tree, progress] = await Promise.all([
-    roadmapsApi.getRoadmapTree(),
-    roadmapsApi.getRoadmapProgress()
-  ])
+  loading.value = true
+  try {
+    // Бэкендтен ағаш құрылымын және прогрессті қатар аламыз
+    const [treeResponse] = await Promise.all([
+      roadmapsApi.getRoadmapTree()
+    ])
 
-  roadmapTreeData.value = tree[roadmapId] ?? []
-
-  topicProgress.setResult(topicId, score, score >= 70)
+    // Roadmap-қа тиісті тақырыптарды алу
+    const rawNodes = treeResponse[roadmapId] || []
+    
+    // Егер бэкендтен статус келсе, оны интерфейске бейімдейміз
+    roadmapTreeData.value = rawNodes;
+    
+  } catch (e) {
+    console.error("Roadmap жүктеу қатесі:", e)
+  } finally {
+    loading.value = false
+  }
 })
+
 const tree = computed(() => roadmapTreeData.value)
 
 const collectLeafNodes = (nodes: typeof tree.value): typeof tree.value => {
