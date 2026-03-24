@@ -42,7 +42,7 @@ const activeQuiz = computed(() => {
 })
 
 const roadmapGroups = computed<RoadmapTaskGroup[]>(() => {
-  return Object.entries(dailyTasksStore.groupedTodayTasks)
+  return Object.entries(dailyTasksStore.groupedTodayTasks ?? {})
     .map(([roadmapId, tasks]) => {
       const sortedTasks = [...tasks].sort((first, second) => first.nodeTitle.localeCompare(second.nodeTitle, "ru"))
       const completed = sortedTasks.filter((task) => task.completed).length
@@ -75,11 +75,11 @@ const filteredRoadmapGroups = computed<RoadmapTaskGroup[]>(() => {
 })
 
 const totalTasks = computed(() => dailyTasksStore.todayTasks.length)
+
 const completionPercent = computed(() => {
   if (totalTasks.value === 0) return 0
   return Math.round((dailyTasksStore.completedTodayCount / totalTasks.value) * 100)
 })
-
 const remainingPoints = computed(() => {
   return Math.max(0, dailyTasksStore.todayTotalPoints - dailyTasksStore.earnedTodayPoints)
 })
@@ -90,7 +90,7 @@ const visibleTasksCount = computed(() => {
 })
 
 const recentHistory = computed(() => {
-  return Object.entries(dailyTasksStore.tasksByDate)
+  return Object.entries(dailyTasksStore.tasksByDate ?? {})
     .sort(([firstDate], [secondDate]) => secondDate.localeCompare(firstDate))
     .slice(0, 7)
     .map(([date, tasks]) => {
@@ -133,22 +133,28 @@ const closeTaskTest = () => {
   quizError.value = null
 }
 
-const submitTaskTest = () => {
-  if (!activeQuiz.value) return
+const submitTaskTest = async () => {
+  if (!activeQuiz.value || !quizTaskId.value) return
 
   if (!selectedQuizOptionId.value) {
     quizError.value = "Выберите один вариант ответа."
     return
   }
 
-  const passed = dailyTasksStore.submitTaskAnswer(activeQuiz.value.taskId, selectedQuizOptionId.value)
+  // 1. Асинхронды шақыруды КҮТУ (await)
+  const success = await dailyTasksStore.submitTaskAnswer(
+    quizTaskId.value, 
+    selectedQuizOptionId.value
+  )
 
-  if (!passed) {
-    quizError.value = "Неверно. Попробуйте еще раз."
-    return
+  if (success) {
+    // Егер дұрыс болса - жабамыз
+    quizError.value = null
+    closeTaskTest()
+  } else {
+    // Егер қате болса - хабарлама шығарамыз
+    quizError.value = "Неверный ответ. Попробуйте еще раз."
   }
-
-  closeTaskTest()
 }
 
 onMounted(() => {

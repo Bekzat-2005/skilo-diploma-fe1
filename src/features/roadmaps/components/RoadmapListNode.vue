@@ -17,7 +17,10 @@ const topicProgress = useTopicProgressStore()
 const dailyTasks = useDailyTasksStore()
 const hasChildren = computed(() => Boolean(props.node.children?.length))
 const expanded = ref(props.depth === 0)
-const nodeTask = computed(() => dailyTasks.getTaskForNode(props.node.id))
+const nodeTask = computed(() => {
+  if (!props.node?.id || !dailyTasks) return null
+  return dailyTasks.getTaskForNode(props.node.id)
+})
 
 const toggle = () => {
   if (hasChildren.value) {
@@ -52,7 +55,6 @@ const getNodeStatusLabel = (node: RoadmapNode) => {
 }
 async function startTopic(nodeId) {
   await roadmapsApi.startNode(nodeId)
-  location.reload()
 }
 
 const getNodeClass = (node: RoadmapNode) => ({
@@ -112,7 +114,7 @@ const getNodeClass = (node: RoadmapNode) => ({
     <div v-if="expanded && hasChildren" class="list-children">
       <RoadmapListNode
         v-for="child in node.children"
-        :key="child.id"
+        :key="child.id || Math.random()" 
         :node="child"
         :depth="depth + 1"
       />

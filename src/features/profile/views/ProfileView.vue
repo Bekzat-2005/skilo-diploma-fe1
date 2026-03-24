@@ -133,6 +133,8 @@ const handleLogout = async () => {
   }
 }
 
+// ProfileView.vue ішіндегі onMounted
+
 onMounted(async () => {
   try {
     loading.value = true
