@@ -1,424 +1,159 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue"
-import {
-  mockRoadmapAssessments,
-  mockRoadmaps,
-  type AssessmentOption,
-  type AssessmentQuestion,
-  type RoadmapLevel
-} from "@/shared/mocks/mockRoadmaps"
-import { useAuthStore } from "@/features/auth/store/auth"
-import { useRoadmapsStore } from "@/features/roadmaps/store/roadmaps"
-import { useSkillLevelsStore, type DirectionSkillLevel } from "@/features/skill-levels/store/skillLevels"
+import { ref, computed, onMounted, watch } from "vue"
+import { api } from "@/shared/api/client"
+import { useSkillLevelsStore, type DirectionLevelResult } from "@/features/skill-levels/store/skillLevels"
 
-interface WrittenQuestion {
-  id: string
-  text: string
-  placeholder: string
-  hint: string
-  keywords: string[]
-}
+import { mockRoadmaps } from "@/shared/mocks/mockRoadmaps"
+
+const skillLevelsStore = useSkillLevelsStore()
+
+const selectedRoadmapId = ref("frontend")
+const isLoading = ref(false)
+const isSubmitting = ref(false)
+const submitMessage = ref("")
+
+const theoryQuestions = ref<any[]>([])
+const writtenQuestions = ref<any[]>([])
+
+const answers = ref<Record<string, number>>({})
+const writtenAnswers = ref<Record<string, string>>({})
 
 const MIN_WRITTEN_LENGTH = 40
 
-const THEORY_OPTIONS: AssessmentOption[] = [
+const THEORY_OPTIONS = [
   { id: "theory_low", label: "Знаю только базу, без уверенной практики", score: 1 },
   { id: "theory_mid", label: "Понимаю теорию и решал(а) учебные/рабочие кейсы", score: 2 },
   { id: "theory_high", label: "Уверенно применяю в продакшене и могу объяснить другим", score: 3 }
 ]
 
-const theoryQuestionTextsByRoadmap: Record<string, string[]> = {
-  ai: [
-    "Насколько уверенно вы объясняете разницу между supervised, unsupervised и reinforcement learning?",
-    "Как хорошо вы понимаете причины переобучения и методы regularization?",
-    "Насколько уверенно вы подбираете метрики под бизнес-задачу (classification/regression/ranking)?",
-    "Есть ли у вас опыт feature engineering и отбора признаков для моделей?",
-    "Насколько глубоко вы понимаете bias-variance tradeoff и влияние гиперпараметров?",
-    "Как уверенно вы проводите error analysis после обучения модели?",
-    "Есть ли опыт мониторинга drift и качества моделей после деплоя?",
-    "Насколько уверенно вы документируете ML-эксперименты и обеспечиваете воспроизводимость?"
-  ],
-  frontend: [
-    "Насколько уверенно вы объясняете critical rendering path и влияние на время загрузки?",
-    "Какой у вас уровень понимания семантической верстки и доступности интерфейсов?",
-    "Насколько уверенно вы применяете async/await, Promise combinators и обработку ошибок?",
-    "Есть ли опыт проектирования масштабируемой структуры компонентов и UI-модулей?",
-    "Насколько хорошо вы владеете оптимизацией bundle (code splitting, lazy loading, tree shaking)?",
-    "Как уверенно вы выявляете и устраняете проблемы производительности в браузере?",
-    "Есть ли у вас опыт защиты фронтенда от XSS/CSRF и небезопасных паттернов?",
-    "Насколько хорошо вы строите стратегию тестирования (unit/integration/e2e)?"
-  ],
-  backend: [
-    "Насколько уверенно вы проектируете идемпотентные API и корректную обработку повторных запросов?",
-    "Как хорошо вы понимаете транзакции, уровни изоляции и консистентность данных?",
-    "Насколько уверенно вы применяете очереди, retries и dead-letter подходы?",
-    "Есть ли опыт проектирования rate limiting и защиты API от перегрузки?",
-    "Насколько глубоко вы понимаете кеширование и стратегии invalidation?",
-    "Как уверенно вы проводите zero-downtime миграции схемы базы данных?",
-    "Есть ли у вас опыт построения observability: логи, метрики, трассировка?",
-    "Насколько уверенно вы проектируете сервисы с учетом масштабирования и отказоустойчивости?"
-  ],
-  devops: [
-    "Насколько уверенно вы применяете стратегии деплоя (blue-green, canary, rolling)?",
-    "Как хорошо вы понимаете жизненный цикл контейнеров и безопасность образов?",
-    "Насколько уверенно вы используете IaC и управление состоянием инфраструктуры?",
-    "Есть ли у вас опыт построения CI/CD с quality gates и автоматическими rollback?",
-    "Насколько уверенно вы настраиваете мониторинг, SLI/SLO и алертинг?",
-    "Как хорошо вы владеете управлением секретами и политиками доступа?",
-    "Есть ли опыт настройки backup/disaster recovery и периодических проверок восстановления?",
-    "Насколько уверенно вы оптимизируете облачные ресурсы и стоимость эксплуатации?"
-  ],
-  mobile: [
-    "Насколько уверенно вы учитываете различия платформ iOS/Android в UX и архитектуре?",
-    "Как хорошо вы понимаете offline-first подход и стратегию синхронизации данных?",
-    "Насколько уверенно вы оптимизируете мобильные приложения по памяти/CPU/энергопотреблению?",
-    "Есть ли у вас опыт управления релизами, staged rollout и мониторинга crash rate?",
-    "Насколько уверенно вы реализуете пуш-уведомления и background processing?",
-    "Как хорошо вы владеете навигацией, deep links и состоянием экранов?",
-    "Есть ли опыт защиты приложения: secure storage, obfuscation, certificate pinning?",
-    "Насколько уверенно вы строите стратегию тестирования мобильного приложения?"
-  ]
-}
+const selectedRoadmap = computed(() => mockRoadmaps.find(r => r.id === selectedRoadmapId.value))
+const selectedStoredLevel = computed(() => skillLevelsStore.getLevel(selectedRoadmapId.value))
 
-const writtenQuestionsByRoadmap: Record<string, WrittenQuestion[]> = {
-  ai: [
-    {
-      id: "ai_written_case",
-      text: "Опишите, как бы вы построили решение для задачи прогноза оттока пользователей. Какие этапы, риски и метрики вы выберете?",
-      placeholder:
-        "Расскажите про постановку задачи, сбор и очистку данных, baseline, выбор модели, валидацию, мониторинг и бизнес-метрики.",
-      hint: "Укажите этапы пайплайна, метрики, контроль качества и шаги после деплоя.",
-      keywords: ["данн", "baseline", "валидац", "метрик", "f1", "precision", "recall", "drift", "монитор"]
-    },
-    {
-      id: "ai_written_errors",
-      text: "Как вы анализируете ошибки модели и принимаете решение, что делать дальше?",
-      placeholder:
-        "Опишите подход к анализу ошибок, сегментации кейсов, улучшению признаков и повторной проверке гипотез.",
-      hint: "Важно описать цикл: анализ -> гипотеза -> изменение -> повторная оценка.",
-      keywords: ["ошиб", "гипотез", "признак", "dataset", "метрик", "validation", "ab", "эксперимент"]
-    },
-    {
-      id: "ai_written_deploy",
-      text: "Опишите план деплоя AI-модели в прод: какие проверки и мониторинг обязательны?",
-      placeholder:
-        "Укажите offline/online проверки, латентность, SLA, drift, алерты, rollback и контроль качества.",
-      hint: "Покажите, что учитываете как технические, так и бизнес-риски.",
-      keywords: ["деплой", "latency", "sla", "алерт", "rollback", "drift", "monitor", "quality"]
-    }
-  ],
-  frontend: [
-    {
-      id: "fe_written_arch",
-      text: "Опишите архитектуру большого фронтенд-приложения: как делить модули и управлять состоянием?",
-      placeholder:
-        "Расскажите про границы модулей, структуру компонентов, shared-слой, управление состоянием и подход к рефакторингу.",
-      hint: "Опишите масштабируемость, читаемость и тестируемость решений.",
-      keywords: ["компонент", "модул", "state", "pinia", "store", "feature", "слой", "рефактор"]
-    },
-    {
-      id: "fe_written_perf",
-      text: "Как вы бы ускорили медленное веб-приложение? Опишите пошаговый план диагностики и оптимизации.",
-      placeholder:
-        "Укажите метрики, инструменты профилирования, критический путь рендера, оптимизацию JS/CSS/изображений и проверку результата.",
-      hint: "Добавьте конкретные метрики: LCP, INP, CLS или TTI.",
-      keywords: ["lcp", "inp", "cls", "performance", "bundle", "lazy", "cache", "profiler", "render"]
-    },
-    {
-      id: "fe_written_security",
-      text: "Опишите, как вы защищаете фронтенд от уязвимостей и ошибок пользователя.",
-      placeholder:
-        "Расскажите про XSS/CSRF, валидацию данных, безопасное хранение токенов, Content Security Policy и обработку ошибок.",
-      hint: "Нужно показать практические меры, а не только определения.",
-      keywords: ["xss", "csrf", "csp", "валидац", "token", "sanitize", "auth", "security"]
-    }
-  ],
-  backend: [
-    {
-      id: "be_written_api",
-      text: "Опишите проектирование API для высоконагруженного сервиса: что критично предусмотреть?",
-      placeholder:
-        "Опишите версионирование, идемпотентность, контракты, лимиты, кэширование, обработку ошибок и наблюдаемость.",
-      hint: "Покажите, как API будет стабильно работать под высокой нагрузкой.",
-      keywords: ["api", "идемпот", "version", "rate", "cache", "retry", "timeout", "observability"]
-    },
-    {
-      id: "be_written_db",
-      text: "Как вы подходите к выбору и оптимизации базы данных для нового проекта?",
-      placeholder:
-        "Расскажите про модель данных, индексы, транзакции, масштабирование, миграции и мониторинг запросов.",
-      hint: "Укажите компромиссы и возможные узкие места.",
-      keywords: ["sql", "nosql", "индекс", "транзак", "реплика", "шард", "миграц", "query", "explain"]
-    },
-    {
-      id: "be_written_reliability",
-      text: "Опишите стратегию отказоустойчивости и восстановления сервиса при сбоях.",
-      placeholder:
-        "Укажите circuit breaker, retry policy, fallback, backup, disaster recovery и план коммуникации инцидента.",
-      hint: "Важно описать как предотвращение, так и восстановление.",
-      keywords: ["retry", "fallback", "circuit", "backup", "disaster", "incident", "slo", "sla"]
-    }
-  ],
-  devops: [
-    {
-      id: "devops_written_pipeline",
-      text: "Опишите CI/CD pipeline для продукта с частыми релизами и высоким требованием к стабильности.",
-      placeholder:
-        "Расскажите про стадии, quality gates, тесты, security checks, канареечный выпуск и rollback.",
-      hint: "Нужно описать автоматизацию и контроль рисков релиза.",
-      keywords: ["ci", "cd", "pipeline", "quality", "canary", "rollback", "test", "scan"]
-    },
-    {
-      id: "devops_written_observability",
-      text: "Как вы строите систему мониторинга и алертинга для продакшена?",
-      placeholder:
-        "Опишите метрики, логи, трассировку, SLI/SLO, пороги алертов, runbook и postmortem.",
-      hint: "Добавьте, как избежать шумных алертов.",
-      keywords: ["метрик", "лог", "trace", "sli", "slo", "alert", "runbook", "postmortem"]
-    },
-    {
-      id: "devops_written_recovery",
-      text: "Опишите план восстановления инфраструктуры после критического инцидента.",
-      placeholder:
-        "Укажите backup strategy, RTO/RPO, порядок восстановления, проверку целостности и регулярные учения.",
-      hint: "Покажите, что recovery проверяется заранее, а не только на бумаге.",
-      keywords: ["backup", "rto", "rpo", "restore", "integrity", "drill", "incident", "recovery"]
-    }
-  ],
-  mobile: [
-    {
-      id: "mobile_written_arch",
-      text: "Опишите архитектуру мобильного приложения, которое должно работать офлайн и синхронизироваться при сети.",
-      placeholder:
-        "Расскажите про хранение локальных данных, конфликт-резолвинг, очередь синхронизации и UX для офлайн-режима.",
-      hint: "Укажите, как защищаете данные и обрабатываете конфликты.",
-      keywords: ["offline", "sync", "cache", "conflict", "queue", "storage", "retry", "state"]
-    },
-    {
-      id: "mobile_written_perf",
-      text: "Как вы оптимизируете производительность и стабильность мобильного приложения?",
-      placeholder:
-        "Опишите профилирование, устранение утечек памяти, оптимизацию рендеринга, фоновые задачи и crash analytics.",
-      hint: "Добавьте конкретные техники и метрики.",
-      keywords: ["memory", "fps", "crash", "profil", "render", "background", "battery", "latency"]
-    },
-    {
-      id: "mobile_written_release",
-      text: "Опишите процесс безопасного релиза мобильного приложения в сторы.",
-      placeholder:
-        "Расскажите про QA, staged rollout, мониторинг метрик после релиза, hotfix-план и коммуникацию изменений.",
-      hint: "Важно описать шаги до и после публикации.",
-      keywords: ["release", "staged", "qa", "store", "review", "rollback", "metrics", "hotfix"]
-    }
-  ]
-}
+const theoryAnsweredCount = computed(() => Object.keys(answers.value).length)
+const writtenAnsweredCount = computed(() =>
+  writtenQuestions.value.filter(q => (writtenAnswers.value[q.id]?.length || 0) >= MIN_WRITTEN_LENGTH).length
+)
+const answeredCount = computed(() => theoryAnsweredCount.value + writtenAnsweredCount.value)
+const totalQuestions = computed(() => theoryQuestions.value.length + writtenQuestions.value.length)
+const allAnswered = computed(() => answeredCount.value === totalQuestions.value && totalQuestions.value > 0)
 
-const buildExtraTheoryQuestions = (roadmapId: string, questions: string[]): AssessmentQuestion[] => {
-  return questions.map((text, index) => {
-    const questionId = `${roadmapId}_theory_extra_${index + 1}`
-    return {
-      id: questionId,
-      text,
-      options: THEORY_OPTIONS.map((option) => ({
-        id: `${questionId}_${option.id}`,
-        label: option.label,
-        score: option.score
-      }))
-    }
-  })
-}
+const isWrittenAnswerValid = (text: string) => (text?.length || 0) >= MIN_WRITTEN_LENGTH
+const writtenCharCount = (id: string) => writtenAnswers.value[id]?.length || 0
+const formatDateTime = (dateStr: string) => new Date(dateStr).toLocaleString("ru-RU")
 
-const extraTheoryQuestionsByRoadmap: Record<string, AssessmentQuestion[]> = Object.fromEntries(
-  Object.entries(theoryQuestionTextsByRoadmap).map(([roadmapId, questions]) => [
-    roadmapId,
-    buildExtraTheoryQuestions(roadmapId, questions)
-  ])
-) as Record<string, AssessmentQuestion[]>
-
-const authStore = useAuthStore()
-const roadmapsStore = useRoadmapsStore()
-const skillLevelsStore = useSkillLevelsStore()
-
-const selectedRoadmapId = ref<string>(mockRoadmaps[0]?.id ?? "")
-const answers = ref<Record<string, number>>({})
-const writtenAnswers = ref<Record<string, string>>({})
-const submitMessage = ref<string | null>(null)
-
-const selectedRoadmap = computed(() => {
-  return mockRoadmaps.find((roadmap) => roadmap.id === selectedRoadmapId.value) ?? null
-})
-
-const selectedAssessment = computed(() => {
-  if (!selectedRoadmapId.value) return null
-  return mockRoadmapAssessments[selectedRoadmapId.value] ?? null
-})
-
-const theoryQuestions = computed<AssessmentQuestion[]>(() => {
-  if (!selectedRoadmapId.value) return []
-
-  const baseQuestions = selectedAssessment.value?.questions ?? []
-  const extraQuestions = extraTheoryQuestionsByRoadmap[selectedRoadmapId.value] ?? []
-
-  return [...baseQuestions, ...extraQuestions]
-})
-
-const writtenQuestions = computed<WrittenQuestion[]>(() => {
-  if (!selectedRoadmapId.value) return []
-  return writtenQuestionsByRoadmap[selectedRoadmapId.value] ?? []
-})
-
-const isWrittenAnswerValid = (answer: string | undefined) => {
-  return (answer?.trim().length ?? 0) >= MIN_WRITTEN_LENGTH
-}
-
-const writtenCharCount = (questionId: string) => {
-  return (writtenAnswers.value[questionId] ?? "").trim().length
-}
-
-const theoryAnsweredCount = computed(() => {
-  return theoryQuestions.value.filter((question) => answers.value[question.id] !== undefined).length
-})
-
-const writtenAnsweredCount = computed(() => {
-  return writtenQuestions.value.filter((question) =>
-    isWrittenAnswerValid(writtenAnswers.value[question.id])
-  ).length
-})
-
-const answeredCount = computed(() => {
-  return theoryAnsweredCount.value + writtenAnsweredCount.value
-})
-
-const totalQuestions = computed(() => {
-  return theoryQuestions.value.length + writtenQuestions.value.length
-})
-
-const allAnswered = computed(() => {
-  if (!theoryQuestions.value.length) return false
-  const allTheoryAnswered = theoryQuestions.value.every((question) => answers.value[question.id] !== undefined)
-  const allWrittenAnswered = writtenQuestions.value.every((question) =>
-    isWrittenAnswerValid(writtenAnswers.value[question.id])
-  )
-  return allTheoryAnswered && allWrittenAnswered
-})
-
-const selectedStoredLevel = computed(() => {
-  if (!selectedRoadmapId.value) return null
-  return skillLevelsStore.getLevel(selectedRoadmapId.value)
-})
-
-const experienceLevelFromScore = (score: number): DirectionSkillLevel => {
-  if (score <= 1.2) return "Junior"
-  if (score <= 1.6) return "Junior Strong"
-  if (score <= 2.1) return "Middle"
-  if (score <= 2.5) return "Middle Strong"
-  return "Senior"
-}
-
-const roadmapLevelFromExperience = (level: DirectionSkillLevel): RoadmapLevel => {
-  if (level === "Junior" || level === "Junior Strong") return "Beginner"
-  if (level === "Middle" || level === "Middle Strong") return "Intermediate"
-  return "Advanced"
-}
-
-const formatDateTime = (isoDate: string) => {
-  return new Date(isoDate).toLocaleString("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  })
-}
-
-const normalizeText = (value: string) => {
-  return value
-    .toLowerCase()
-    .replace(/[^a-zа-я0-9\s]/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-}
-
-const evaluateWrittenAnswer = (answer: string, question: WrittenQuestion) => {
-  const normalized = normalizeText(answer)
-  if (!normalized) return 1
-
-  const words = normalized.split(" ").filter(Boolean)
-  const length = answer.trim().length
-  const lengthScore =
-    length >= 260 ? 3 : length >= 180 ? 2.7 : length >= 120 ? 2.3 : length >= MIN_WRITTEN_LENGTH ? 1.8 : 1
-
-  const keywordMatches = question.keywords.reduce((count, keyword) => {
-    return count + (normalized.includes(keyword) ? 1 : 0)
-  }, 0)
-  const keywordRatio = question.keywords.length ? keywordMatches / question.keywords.length : 0
-  const keywordScore = keywordRatio >= 0.7 ? 3 : keywordRatio >= 0.45 ? 2.5 : keywordRatio >= 0.2 ? 2 : 1.2
-
-  const structureScore = words.length >= 40 ? 3 : words.length >= 26 ? 2.5 : words.length >= 16 ? 2 : 1.2
-
-  const weighted = lengthScore * 0.4 + keywordScore * 0.4 + structureScore * 0.2
-  return Number(Math.min(3, Math.max(1, weighted)).toFixed(2))
+const openDirection = (id: string) => {
+  selectedRoadmapId.value = id
 }
 
 const resetCurrentAnswers = () => {
   answers.value = {}
-  writtenAnswers.value = {}
-  submitMessage.value = null
+  writtenQuestions.value.forEach(q => {
+    writtenAnswers.value[q.id] = ""
+  })
+  submitMessage.value = ""
 }
 
-const openDirection = (roadmapId: string) => {
-  selectedRoadmapId.value = roadmapId
+// ЖАҢА: Қайта тапсыру логикасы
+const retakeTest = () => {
+  skillLevelsStore.clearLevel(selectedRoadmapId.value) 
+  loadQuestions(selectedRoadmapId.value, true) // "true" AI-ды мәжбүрлі түрде іске қосады
 }
 
-watch(selectedRoadmapId, () => {
-  resetCurrentAnswers()
+const loadQuestions = async (roadmapId: string, forceRetake = false) => {
+  if (!roadmapId) return
+
+  try {
+    isLoading.value = true
+
+    // 1-ШЕШІМ: Бэкендтен БАЗАДАҒЫ деңгейлерді тартып алып, Store-ды жаңартамыз
+    if (!forceRetake) {
+      const dbLevels = await api.getUserSkillLevels()
+      dbLevels.forEach((level: any) => skillLevelsStore.setLevel(level))
+      
+      // Егер базада бұл бағыт бойынша деңгей сақталған болса, AI-ға сұраныс ЖІБЕРМЕЙМІЗ!
+      if (skillLevelsStore.getLevel(roadmapId)) {
+        theoryQuestions.value = []
+        writtenQuestions.value = []
+        return
+      }
+    }
+
+    // 2-ШЕШІМ: Ескі сұрақтарды тазартамыз
+    theoryQuestions.value = []
+    writtenQuestions.value = []
+    resetCurrentAnswers()
+
+    // 3. AI-дан жаңа тест сұраймыз
+    const data = await api.getAssessmentQuestions(roadmapId)
+
+    if (data && data.theoryQuestions && data.writtenQuestions) {
+      theoryQuestions.value = data.theoryQuestions.map((text: string, index: number) => ({
+        id: `tq_${index}`,
+        text: text,
+        options: THEORY_OPTIONS
+      }))
+
+      writtenQuestions.value = data.writtenQuestions
+      writtenQuestions.value.forEach(q => {
+        writtenAnswers.value[q.id] = ""
+      })
+    }
+  } catch (error) {
+    console.error("Сұрақтарды жүктеу қатесі:", error)
+  } finally {
+    isLoading.value = false
+  }
+}
+
+onMounted(() => {
+  loadQuestions(selectedRoadmapId.value)
 })
 
-watch(
-  [answers, writtenAnswers],
-  () => {
-    if (submitMessage.value) submitMessage.value = null
-  },
-  { deep: true }
-)
+watch(selectedRoadmapId, (newId) => {
+  loadQuestions(newId)
+})
 
 const submitDirectionAssessment = async () => {
-  if (!selectedRoadmap.value || !theoryQuestions.value.length || !allAnswered.value) return
+  if (!allAnswered.value) return
 
-  const theoryTotal = theoryQuestions.value.reduce((sum, question) => {
-    return sum + (answers.value[question.id] ?? 1)
-  }, 0)
-  const theoryScore = Number((theoryTotal / theoryQuestions.value.length).toFixed(2))
+  try {
+    isSubmitting.value = true
+    submitMessage.value = "AI бағалауда... Күте тұрыңыз."
 
-  const writtenScore = writtenQuestions.value.length
-    ? Number(
-        (
-          writtenQuestions.value.reduce((sum, question) => {
-            return sum + evaluateWrittenAnswer(writtenAnswers.value[question.id] ?? "", question)
-          }, 0) / writtenQuestions.value.length
-        ).toFixed(2)
-      )
-    : theoryScore
+    let totalTheoryScore = 0
+    Object.values(answers.value).forEach(score => {
+      totalTheoryScore += score
+    })
 
-  const totalScore = Number((theoryScore * 0.7 + writtenScore * 0.3).toFixed(2))
-  const levelLabel = experienceLevelFromScore(totalScore)
-  const updatedAt = new Date().toISOString()
+    const formattedWrittenAnswers = writtenQuestions.value.map(q => ({
+      question: q.text,
+      answer: writtenAnswers.value[q.id]
+    }))
 
-  skillLevelsStore.setLevel({
-    roadmapId: selectedRoadmap.value.id,
-    roadmapTitle: selectedRoadmap.value.title,
-    levelLabel,
-    score: totalScore,
-    updatedAt
-  })
+    const result = await api.submitAssessmentAnswers(selectedRoadmapId.value, {
+      theoryScore: totalTheoryScore,
+      writtenAnswers: formattedWrittenAnswers
+    })
 
-  await roadmapsStore.addRoadmapWithLevel(
-    selectedRoadmap.value.id,
-    roadmapLevelFromExperience(levelLabel),
-    authStore.user?.id ?? null
-  )
+    const finalResult: DirectionLevelResult = {
+      roadmapId: selectedRoadmapId.value,
+      roadmapTitle: selectedRoadmap.value?.title || result.title || selectedRoadmapId.value,
+      levelLabel: result.levelLabel,
+      score: result.score,
+      updatedAt: new Date().toISOString()
+    }
+    skillLevelsStore.setLevel(finalResult)
+    
+    // Сәтті өткен соң сұрақтарды жасырамыз
+    theoryQuestions.value = []
+    writtenQuestions.value = []
 
-  submitMessage.value = `Уровень для "${selectedRoadmap.value.title}" определен: ${levelLabel}. Теория: ${theoryScore}, письменная часть: ${writtenScore}.`
+  } catch (error) {
+    console.error("Бағалау қатесі", error)
+    submitMessage.value = "Қате кетті, серверді тексеріп қайта көріңіз."
+  } finally {
+    isSubmitting.value = false
+  }
 }
 </script>
 
@@ -464,7 +199,20 @@ const submitDirectionAssessment = async () => {
       </aside>
 
       <section class="assessment-card">
-        <template v-if="selectedRoadmap && totalQuestions > 0">
+        <div v-if="isLoading" class="loading-state" style="text-align: center; padding: 40px;">
+          <h2>Сұрақтар дайындалуда...</h2>
+          <p style="color: var(--muted);">AI сіздің деңгейіңізге сай бірегей сұрақтар құрастырып жатыр 🤖</p>
+        </div>
+
+        <article v-else-if="selectedStoredLevel" class="result-card" style="text-align: center; padding: 40px; background: #f0fdf4; border-radius: 8px; border: 1px solid #bbf7d0;">
+          <h2 style="color: #15803d; margin-bottom: 10px;">Бұл бағыт бойынша сіздің деңгейіңіз анықталған! 🎉</h2>
+          <p style="font-size: 18px; margin-bottom: 5px;">Нәтиже: <strong>{{ selectedStoredLevel.levelLabel }}</strong></p>
+          <span style="display: block; color: var(--muted); margin-bottom: 20px; font-size: 14px;">Орындалған уақыты: {{ formatDateTime(selectedStoredLevel.updatedAt) }}</span>
+          
+          <button class="btn-secondary" @click="retakeTest">Тестті қайта тапсыру</button>
+        </article>
+
+        <template v-else-if="selectedRoadmap && totalQuestions > 0">
           <header class="assessment-head">
             <h2>{{ selectedRoadmap.title }}</h2>
             <p>
@@ -541,19 +289,13 @@ const submitDirectionAssessment = async () => {
           </section>
 
           <div class="assessment-actions">
-            <button class="btn-primary" :disabled="!allAnswered" @click="submitDirectionAssessment">
-              Определить уровень
+            <button class="btn-primary" :disabled="!allAnswered || isSubmitting" @click="submitDirectionAssessment">
+              {{ isSubmitting ? 'Бағалануда...' : 'Определить уровень' }}
             </button>
-            <button class="btn-secondary" @click="resetCurrentAnswers">Очистить ответы</button>
+            <button class="btn-secondary" @click="resetCurrentAnswers" :disabled="isSubmitting">Очистить ответы</button>
           </div>
 
           <p v-if="submitMessage" class="submit-note">{{ submitMessage }}</p>
-
-          <article v-if="selectedStoredLevel" class="result-card">
-            <p>Последний результат:</p>
-            <strong>{{ selectedStoredLevel.levelLabel }}</strong>
-            <span>{{ formatDateTime(selectedStoredLevel.updatedAt) }}</span>
-          </article>
         </template>
 
         <p v-else class="empty-note">Для выбранного направления пока нет полного набора вопросов.</p>

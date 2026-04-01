@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { computed, onMounted, ref, watch } from "vue"
 import { useRouter } from "vue-router"
-import { mockRoadmaps, type Roadmap } from "@/shared/mocks/mockRoadmaps"
 import { useAuthStore } from "@/features/auth/store/auth"
 import { useRoadmapsStore } from "@/features/roadmaps/store/roadmaps"
+import { api } from "@/shared/api/client";
 
 type VerificationMode = "online" | "offline"
 type VerificationStatus = "scheduled" | "completed"
@@ -35,8 +35,6 @@ interface VerificationBooking {
   certificateId: string | null
 }
 
-const STORAGE_KEY = "skill_verification_bookings_v1"
-
 const router = useRouter()
 const roadmapsStore = useRoadmapsStore()
 const authStore = useAuthStore()
@@ -46,67 +44,7 @@ const modeLabel: Record<VerificationMode, string> = {
   offline: "Офлайн"
 }
 
-const getUpcomingDates = (days: number): string[] => {
-  return Array.from({ length: days }, (_, index) => {
-    const date = new Date()
-    date.setHours(0, 0, 0, 0)
-    date.setDate(date.getDate() + index)
-    return date.toISOString().slice(0, 10)
-  })
-}
-
-const buildSlots = (dates: string[]): VerificationSlot[] => {
-  const onlineTimes = ["10:00", "12:00", "15:30", "18:00"]
-  const offlineTimes = ["11:00", "14:00", "16:30"]
-  const onlineAssessors = ["Aigerim B.", "Maksat T.", "Dias N."]
-  const offlineAssessors = ["Nurlybek K.", "Aruzhan S."]
-  const offlineLocations = ["Almaty Hub, офис 3.2", "Astana Campus, зал B", "Shymkent Center, аудитория 12"]
-
-  const slots: VerificationSlot[] = []
-
-  dates.forEach((date, dateIndex) => {
-    onlineTimes.forEach((time, timeIndex) => {
-      const seats = (dateIndex + timeIndex + 1) % 5 === 0 ? 0 : 1
-      slots.push({
-        id: `${date}-online-${time}`,
-        date,
-        time,
-        mode: "online",
-        location: "Google Meet",
-        assessor: onlineAssessors[(dateIndex + timeIndex) % onlineAssessors.length],
-        seats
-      })
-    })
-
-    offlineTimes.forEach((time, timeIndex) => {
-      const seats = (dateIndex + timeIndex + 2) % 4 === 0 ? 0 : 1
-      slots.push({
-        id: `${date}-offline-${time}`,
-        date,
-        time,
-        mode: "offline",
-        location: offlineLocations[(dateIndex + timeIndex) % offlineLocations.length],
-        assessor: offlineAssessors[(dateIndex + timeIndex) % offlineAssessors.length],
-        seats
-      })
-    })
-  })
-
-  return slots
-}
-
-const parseStoredBookings = (): VerificationBooking[] => {
-  const raw = localStorage.getItem(STORAGE_KEY)
-  if (!raw) return []
-
-  try {
-    const parsed = JSON.parse(raw) as VerificationBooking[]
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
-
+// Уақытты әдемілеп көрсету үшін ғана
 const formatDay = (dateIso: string) => {
   return new Date(`${dateIso}T00:00:00`).toLocaleDateString("ru-RU", {
     weekday: "short",
@@ -124,24 +62,22 @@ const formatSessionDate = (dateIso: string, time: string) => {
   })
 }
 
-const createCertificateId = () => {
-  return `SV-${new Date().getFullYear()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`
-}
+// РЕАКТИВТІ АЙНЫМАЛЫЛАР (Барлығы бос, бэкендтен толады)
+const allSlots = ref<VerificationSlot[]>([])
+const bookings = ref<VerificationBooking[]>([])
+const slotDates = ref<string[]>([]) // Күндер де бэкендтен келетін слоттарға қарап құралады
 
-const slotDates = getUpcomingDates(7)
-const allSlots = ref<VerificationSlot[]>(buildSlots(slotDates))
 const selectedMode = ref<VerificationMode>("online")
-const selectedDate = ref<string>(slotDates[0] ?? "")
+const selectedDate = ref<string>("")
 const selectedRoadmapId = ref<string>("")
 const selectedSlotId = ref<string>("")
 const formError = ref<string | null>(null)
 const successMessage = ref<string | null>(null)
-const bookings = ref<VerificationBooking[]>(parseStoredBookings())
-let bookingsPersistTimer: number | null = null
+const isLoading = ref<boolean>(true)
+const isActionLoading = ref<boolean>(false) // Түймелерді екі рет басып кетпеу үшін
 
-const directionOptions = computed<Roadmap[]>(() => {
-  return roadmapsStore.myRoadmaps.length ? roadmapsStore.myRoadmaps : mockRoadmaps
-})
+// Бағыттар тек қана Pinia Store-дан (яғни бэкендтен алынған) алынады, ешқандай mock жоқ!
+const directionOptions = computed(() => roadmapsStore.myRoadmaps)
 
 const activeSlotIds = computed(() => {
   return new Set(bookings.value.filter((booking) => booking.status === "scheduled").map((booking) => booking.slotId))
@@ -189,7 +125,6 @@ watch(
       selectedRoadmapId.value = ""
       return
     }
-
     if (!next.some((roadmap) => roadmap.id === selectedRoadmapId.value)) {
       selectedRoadmapId.value = next[0].id
     }
@@ -205,79 +140,139 @@ watch([selectedMode, selectedDate], () => {
   }
 })
 
-watch(
-  bookings,
-  (next) => {
-    if (bookingsPersistTimer) {
-      window.clearTimeout(bookingsPersistTimer)
+// --- 100% ШЫНАЙЫ БЭКЕНДПЕН ЖҰМЫС ---
+
+const fetchInitialData = async () => {
+  isLoading.value = true
+  try {
+    // 1. Бэкендтен мәліметтерді тарту
+    const [slotsData, bookingsData] = await Promise.all([
+      api.verification.getSlots(),
+      api.verification.getBookings()
+    ])
+    
+    allSlots.value = slotsData
+    bookings.value = bookingsData
+
+    // 2. Бэкендтен келген слоттарға қарап, күндерді (dates) динамикалық түрде шығарып алу
+    if (slotsData && slotsData.length > 0) {
+      // Set арқылы қайталанбайтын күндер тізімін жасаймыз
+      const uniqueDates = [...new Set(slotsData.map((slot: VerificationSlot) => slot.date))]
+      slotDates.value = uniqueDates
+      selectedDate.value = uniqueDates[0] // Бірінші күнді автоматты түрде таңдау
     }
+  } catch (error) {
+    console.error("Бэкендтен мәліметтерді алу мүмкін болмады:", error)
+    formError.value = "Сервермен байланыс жоқ. Мәліметтер жүктелмеді."
+  } finally {
+    isLoading.value = false
+  }
+}
 
-    bookingsPersistTimer = window.setTimeout(() => {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-      bookingsPersistTimer = null
-    }, 140)
-  },
-  { deep: true }
-)
-
-const bookSession = () => {
+const bookSession = async () => {
   if (!selectedRoadmap.value) {
     formError.value = "Выберите направление."
     return
   }
-
   if (!selectedSlot.value) {
     formError.value = "Выберите свободное время."
     return
   }
 
+  // Егер процесс жүріп жатса, функцияны тоқтату (екі рет басылудан қорғау)
+  if (isActionLoading.value) return 
+
+  formError.value = null
+  isActionLoading.value = true // Процесс басталды
+
+  try {
+    const newBooking = await api.verification.createBooking({
+      slotId: selectedSlot.value.id,
+      roadmapId: selectedRoadmap.value.id,
+      roadmapTitle: selectedRoadmap.value.title,
+      mode: selectedSlot.value.mode,
+      date: selectedSlot.value.date,
+      time: selectedSlot.value.time,
+      dateTimeIso: `${selectedSlot.value.date}T${selectedSlot.value.time}:00`,
+      location: selectedSlot.value.location,
+      assessor: selectedSlot.value.assessor,
+    })
+
+    bookings.value = [newBooking, ...bookings.value]
+    successMessage.value = `Запись подтверждена: ${selectedRoadmap.value.title}, ${formatSessionDate(newBooking.date, newBooking.time)}.`
+    selectedSlotId.value = ""
+  } catch (error) {
+    formError.value = "Қате кетті. Бэкендке сақтау мүмкін болмады."
+    console.error(error)
+  } finally {
+    isActionLoading.value = false // Процесс аяқталды
+  }
+}
+
+const markCompleted = async (bookingId: string) => {
+  // 1. Алдымен қолданушыдан растау сұраймыз
+  const isConfirmed = window.confirm("Вы точно хотите отметить эту запись как пройденную?")
+  
+  // Егер "Отмена" басса, ештеңе істемейміз
+  if (!isConfirmed) return
+
+  // 2. Екі рет басылудан қорғау (Жүктеліп жатса, тоқтату)
+  if (isActionLoading.value) return
+
+  isActionLoading.value = true // Процесс басталды
   formError.value = null
 
-  const booking: VerificationBooking = {
-    id: `booking-${Date.now()}`,
-    slotId: selectedSlot.value.id,
-    roadmapId: selectedRoadmap.value.id,
-    roadmapTitle: selectedRoadmap.value.title,
-    mode: selectedSlot.value.mode,
-    date: selectedSlot.value.date,
-    time: selectedSlot.value.time,
-    dateTimeIso: `${selectedSlot.value.date}T${selectedSlot.value.time}:00`,
-    location: selectedSlot.value.location,
-    assessor: selectedSlot.value.assessor,
-    status: "scheduled",
-    bookedAt: new Date().toISOString(),
-    completedAt: null,
-    certificateId: null
+  try {
+    // Бэкендке сұраныс жіберу
+    const updatedBooking = await api.verification.completeBooking(bookingId)
+    
+    // Бэкенд сәтті жауап берсе ғана фронтендтегі тізімді жаңартамыз
+    bookings.value = bookings.value.map((b) => (b.id === bookingId ? updatedBooking : b))
+    
+    // Сәтті шыққаны туралы хабарлама
+    successMessage.value = "Запись успешно отмечена как пройденная."
+  } catch (error) {
+    console.error("Бэкендте аяқтау мүмкін болмады:", error)
+    formError.value = "Не удалось обновить статус. Попробуйте позже."
+  } finally {
+    isActionLoading.value = false // Процесс аяқталды, түймелер қайта ашылады
   }
-
-  bookings.value = [booking, ...bookings.value]
-  successMessage.value = `Запись подтверждена: ${selectedRoadmap.value.title}, ${formatSessionDate(booking.date, booking.time)}.`
-  selectedSlotId.value = ""
 }
 
-const markCompleted = (bookingId: string) => {
-  bookings.value = bookings.value.map((booking) => {
-    if (booking.id !== bookingId) return booking
-    return {
-      ...booking,
-      status: "completed",
-      completedAt: new Date().toISOString(),
-      certificateId: booking.certificateId ?? createCertificateId()
-    }
-  })
-}
+const cancelBooking = async (bookingId: string) => {
+  // 1. Алдымен қолданушыдан сұраймыз
+  const isConfirmed = window.confirm("Вы точно хотите отменить эту запись?")
+  
+  // 2. Егер "Отмена" басса, ештеңе істемейміз
+  if (!isConfirmed) return
 
-const cancelBooking = (bookingId: string) => {
-  bookings.value = bookings.value.filter((booking) => booking.id !== bookingId)
+  // 3. Егер процесс жүріп жатса, тоқтатамыз
+  if (isActionLoading.value) return
+
+  isActionLoading.value = true // Процесс басталды
+  formError.value = null
+
+  try {
+    await api.verification.cancelBooking(bookingId)
+    // Бэкендтен сәтті өшсе ғана, фронтендтен жоямыз
+    bookings.value = bookings.value.filter((b) => b.id !== bookingId)
+    successMessage.value = "Запись успешно отменена."
+  } catch (error) {
+    console.error("Бэкендтен өшіру мүмкін болмады:", error)
+    formError.value = "Не удалось отменить запись. Попробуйте позже."
+  } finally {
+    isActionLoading.value = false // Процесс аяқталды
+  }
 }
 
 onMounted(async () => {
+  await roadmapsStore.loadAllRoadmaps()
+  
+  // 2. Қолданушыға тиесілі бағыттардың ID-лерін жүктейміз
   await roadmapsStore.loadUserRoadmapCollection(authStore.user?.id ?? null)
-})
-
-onBeforeUnmount(() => {
-  if (!bookingsPersistTimer) return
-  window.clearTimeout(bookingsPersistTimer)
+  
+  // 3. Слоттар мен жазбаларды жүктейміз
+  await fetchInitialData()
 })
 </script>
 
@@ -392,8 +387,12 @@ onBeforeUnmount(() => {
         <p v-if="formError" class="form-error">{{ formError }}</p>
         <p v-if="successMessage" class="form-success">{{ successMessage }}</p>
 
-        <button type="button" class="confirm-btn" @click="bookSession">
-          Записаться на подтверждение навыков
+        <button 
+          class="submit-btn primary-btn" 
+          @click="bookSession"
+          :disabled="isActionLoading"
+        >
+          {{ isActionLoading ? 'Загрузка...' : 'Записаться' }}
         </button>
       </section>
 
@@ -423,10 +422,18 @@ onBeforeUnmount(() => {
               <p>{{ formatSessionDate(booking.date, booking.time) }}</p>
               <p>{{ booking.location }} · {{ booking.assessor }}</p>
               <div class="booking-actions">
-                <button type="button" class="ghost-btn" @click="markCompleted(booking.id)">
+                <button 
+                  class="text-btn" 
+                  @click="markCompleted(booking.id)"
+                  :disabled="isActionLoading"
+                >
                   Отметить как пройдено
                 </button>
-                <button type="button" class="text-btn" @click="cancelBooking(booking.id)">
+                <button 
+                  class="ghost-btn danger-text" 
+                  @click="cancelBooking(booking.id)"
+                  :disabled="isActionLoading"
+                >
                   Отменить
                 </button>
               </div>

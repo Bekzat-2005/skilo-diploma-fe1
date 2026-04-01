@@ -28,6 +28,24 @@ export const createRoadmapsService = (http: AxiosInstance) => {
     async getUserYearActivity(): Promise<UserActivityDay[]> {
       const { data } = await http.get<UserActivityDay[]>("/roadmaps/activity");
       return data;
-    }
+    },
+    async getAssessmentQuestions(roadmapId: string): Promise<any> {
+      const { data } = await http.get(`/roadmaps/${roadmapId}/assessment`);
+      return data;
+    },
+
+    async submitAssessmentAnswers(
+      roadmapId: string, 
+      payload: { theoryScore: number; writtenAnswers: any[]; answers?: any }
+    ): Promise<any> {
+      // payload ішінде жаңа формат та (theory + written), 
+      // ескі формат та (answers) жүре беретіндей етіп жасадық (backend-тегі гибридті код үшін)
+      const { data } = await http.post(`/roadmaps/${roadmapId}/assessment/submit`, payload);
+      return data;
+    },
+    async getUserSkillLevels(): Promise<any[]> {
+      const { data } = await http.get<any[]>("/roadmaps/skill-levels");
+      return data;
+    },
   };
 };

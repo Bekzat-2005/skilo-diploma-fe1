@@ -73,7 +73,7 @@ const postDraft = ref({
   authorType: guessedAuthorType.value as CommunityAuthorType
 })
 
-const publishedPosts = computed(() => communityStore.publishedPosts)
+const publishedPosts = computed(() => communityStore.publishedPosts || [])
 
 const myModerationPosts = computed(() => {
   const userId = authStore.user?.id ?? null
@@ -112,11 +112,20 @@ const isLikedByCurrentUser = (post: CommunityPost) => {
 }
 
 const likePost = (post: CommunityPost) => {
-  if (!hasAuthUser.value) return
-  communityStore.toggleLike(post.id, currentUserId.value)
+  if (!authStore.user?.id) { 
+    alert("Лайк басу үшін жүйеге кіріңіз")
+    return
+  }
+  
+  const userId = authStore.user.id
+  communityStore.toggleLike(post.id, userId)
 }
 
 const submitComment = (postId: string) => {
+  if (!authStore.user?.id) {
+    alert("Комментарий жазу үшін жүйеге кіріңіз");
+    return;
+  }
   const nextText = (commentInputs.value[postId] ?? "").trim()
   if (nextText.length < 2) {
     commentErrors.value[postId] = "Комментарий слишком короткий."
@@ -160,59 +169,44 @@ const parseTags = (value: string) => {
 }
 
 const submitPost = async () => {
-  composerMessage.value = null
-
-  const title = postDraft.value.title.trim()
-  const content = postDraft.value.content.trim()
-  const tags = parseTags(postDraft.value.tags)
-
-  if (title.length < 8) {
-    composerTone.value = "error"
-    composerMessage.value = "Добавьте более подробный заголовок (минимум 8 символов)."
-    return
-  }
-
-  if (content.length < 80) {
-    composerTone.value = "error"
-    composerMessage.value = "Текст слишком короткий. Нужен развернутый пост (минимум 80 символов)."
-    return
-  }
+  // postDraft объектісінен деректерді аламыз
+  if (!postDraft.value.title.trim() || !postDraft.value.content.trim()) return
 
   isSubmittingPost.value = true
-  composerTone.value = "info"
-  composerMessage.value = "Пост отправлен на модерацию. Проверка займет несколько секунд."
-
-  const moderationResult = await communityStore.submitPostForModeration({
-    title,
-    content,
+  
+  const payload = {
+    title: postDraft.value.title,
+    content: postDraft.value.content,
     focusArea: postDraft.value.focusArea,
-    tags,
-    authorName: currentAuthorName.value,
+    // Тегтерді массивке айналдыру
+    tags: postDraft.value.tags.split(",").map(t => t.trim()).filter(t => t),
+    authorName: authStore.user?.fullName || currentAuthorName.value,
     authorType: postDraft.value.authorType,
-    authorUserId: authStore.user?.id ?? null
-  })
-
-  isSubmittingPost.value = false
-
-  if (!moderationResult) {
-    composerTone.value = "error"
-    composerMessage.value = "Не удалось обработать публикацию. Попробуйте еще раз."
-    return
+    authorUserId: authStore.user?.id || null
   }
 
-  if (moderationResult.moderationStatus === "approved") {
+  const result = await communityStore.submitPost(payload)
+
+  if (result) {
+    resetComposerForm() // Форманы тазарту
+    composerMessage.value = "Пост модерацияға жіберілді!"
     composerTone.value = "success"
-    composerMessage.value = "Пост прошел модерацию и опубликован в ленте."
-    resetComposerForm()
-    return
+    
+    // 3 секундтан кейін терезені жабу
+    setTimeout(() => {
+      showComposerAlert.value = false
+      composerMessage.value = null
+    }, 3000)
+  } else {
+    composerMessage.value = "Қате кетті, қайта көріңіз."
+    composerTone.value = "error"
   }
-
-  composerTone.value = "error"
-  composerMessage.value = moderationResult.moderationNote ?? "Пост отклонен модерацией."
+  
+  isSubmittingPost.value = false
 }
 
-onMounted(() => {
-  showComposerAlert.value = true
+onMounted(async () => {
+  await communityStore.fetchPosts()
 })
 </script>
 
@@ -243,7 +237,7 @@ onMounted(() => {
       <section class="feed-panel">
         <header class="panel-head">
           <h2>Лента публикаций</h2>
-          <span>{{ publishedPosts.length }} постов</span>
+          <span>{{ publishedPosts?.length || 0 }} постов</span>
         </header>
 
         <article
@@ -267,7 +261,7 @@ onMounted(() => {
           <h3>{{ post.title }}</h3>
           <p class="post-content">{{ post.content }}</p>
 
-          <div v-if="post.tags.length" class="post-tags">
+          <div v-if="post.tags?.length" class="post-tags">
             <span v-for="tag in post.tags" :key="tag" class="tag-item">#{{ tag }}</span>
           </div>
 
@@ -281,10 +275,10 @@ onMounted(() => {
             >
               👍 {{ post.likes }}
             </button>
-            <span>{{ post.comments.length }} комментариев</span>
+            <span>{{ post.comments?.length || 0 }} комментариев</span>
           </div>
 
-          <div v-if="post.comments.length" class="comments-list">
+          <div v-if="post.comments?.length" class="comments-list">
             <article
               v-for="comment in post.comments"
               :key="comment.id"

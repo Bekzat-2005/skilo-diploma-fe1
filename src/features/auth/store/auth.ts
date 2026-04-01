@@ -78,6 +78,10 @@ export const useAuthStore = defineStore('auth', () => {
     isFirstLogin.value = true
     localStorage.removeItem('token')
     localStorage.removeItem('user')
+    localStorage.removeItem('user_roadmap_ids')
+    localStorage.removeItem('user_roadmap_levels')
+    localStorage.removeItem('user_skill_levels_v1')
+    localStorage.removeItem('skill_verification_bookings_v1')
   }
 
   const setOnboardingDone = () => {

@@ -7,6 +7,8 @@ import { createLeaderboardService } from "./services/leaderboard.service"
 import { createRoadmapsService } from "./services/roadmaps.service"
 import { createSocialService } from "./services/social.service"
 import { createVacanciesService } from "./services/vacancies.service"
+import { createCommunityService } from "./services/community.service"
+import { createVerificationService } from "./services/verification.service"
 
 
 export const axiosInstance = axios.create({
@@ -31,8 +33,10 @@ export const api = {
   ...createSocialService(axiosInstance),
   ...createLeaderboardService(axiosInstance),
   ...createVacanciesService(axiosInstance),
+  ...createCommunityService(axiosInstance),
+  ...createVerificationService(axiosInstance),
   // ...createInterviewService(),
-  // ...createCompanyService()
+  ...createCompanyService(axiosInstance)
 };
 
 export type ApiClient = typeof api
