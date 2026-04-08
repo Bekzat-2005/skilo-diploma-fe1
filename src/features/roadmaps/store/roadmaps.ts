@@ -113,6 +113,28 @@ export const useRoadmapsStore = defineStore("roadmaps", () => {
     return roadmapProgress.value[roadmapId] ?? null
   }
 
+  const addGeneratedAiRoadmap = async (customRoadmapId: string, userId: number | null) => {
+    try {
+      // 1. Бэкэндке конвертация жасауға сұраныс жібереміз
+      const data = await roadmapsApi.convertAiToStandard(customRoadmapId);
+
+      if (data.success) {
+        // 2. Жаңа бағытты көру үшін жалпы тізімді қайта жүктейміз
+        allRoadmapsLoaded.value = false; 
+        await loadAllRoadmaps();
+
+        // 3. Қолданушының "Мои направления" тізімі мен прогресін жаңартамыз
+        await loadUserRoadmapCollection(userId);
+        await loadUserProgress();
+        
+        return data.newRoadmapId; // Сәтті өтсе ID қайтарамыз
+      }
+    } catch (e) {
+      console.error("AI Roadmap қосу кезінде қате:", e);
+      throw e;
+    }
+  };
+
   const myRoadmaps = computed(() =>
     allRoadmaps.value.filter((roadmap) => userRoadmapIds.value.includes(roadmap.id))
   )
@@ -129,6 +151,7 @@ export const useRoadmapsStore = defineStore("roadmaps", () => {
     roadmapProgress,
     myRoadmaps,
     availableRoadmaps,
+    addGeneratedAiRoadmap,
     loadUserProgress,
     loadAllRoadmaps,
     loadUserRoadmapCollection,

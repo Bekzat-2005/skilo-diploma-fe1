@@ -22,6 +22,11 @@ export const createVacanciesService = (axios: AxiosInstance) => ({
     return res.data;
   },
 
+  async generateAIPrep(vacancyId: string): Promise<any> {
+    const res = await axios.post(`/vacancies/${vacancyId}/generate-ai-prep`);
+    return res.data;
+  },
+
   async submitVacancyTask(
     vacancyId: string,
     taskId: string,

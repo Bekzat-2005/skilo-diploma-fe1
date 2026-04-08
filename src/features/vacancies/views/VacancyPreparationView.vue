@@ -130,27 +130,43 @@ const submitTask = async (taskId: string) => {
   }
 }
 
+const isGenerating = ref(false);
+
 const loadVacancy = async () => {
   try {
-    loading.value = true
-    error.value = null
-    vacancy.value = await vacanciesApi.getVacancyById(String(route.params.id))
-    if (!vacancy.value) {
-      error.value = "Вакансия не найдена"
+    loading.value = true;
+    const data = await vacanciesApi.getVacancyById(String(route.params.id));
+    vacancy.value = data;
+
+    // Егер ИИ деректері (сұрақтар не тест) әлі жоқ болса
+    if (vacancy.value && (!vacancy.value.preparation.questions.length || !vacancy.value.preparation.test.length)) {
+      await handleGenerateAIPrep();
     } else {
-      await loadTasks(vacancy.value.id)
+      await loadTasks(vacancy.value.id);
     }
   } catch (err) {
-    if (isNotFoundError(err)) {
-      error.value = "404: такой адрес не существует или вакансия удалена."
-      return
-    }
-
-    error.value = resolveApiError(err, "Не удалось загрузить подготовку по вакансии").message
+    error.value = "Жүктеу қатесі";
   } finally {
-    loading.value = false
+    loading.value = false;
   }
-}
+};
+
+const handleGenerateAIPrep = async () => {
+  if (!vacancy.value) return;
+  
+  try {
+    isGenerating.value = true;
+    // Бұл жерде backend-тегі генерация жасайтын жаңа endpoint-ты шақырамыз
+    const aiData = await vacanciesApi.generateAIPrep(vacancy.value.id);
+    vacancy.value.preparation.questions = aiData.questions;
+    vacancy.value.preparation.test = aiData.test;
+    await loadTasks(vacancy.value.id);
+  } catch (err) {
+    console.error("Генерация қатесі");
+  } finally {
+    isGenerating.value = false;
+  }
+};
 
 onMounted(() => {
   void loadVacancy()
@@ -160,6 +176,11 @@ onMounted(() => {
 <template>
   <div class="prep-page">
 
+    <div v-if="isGenerating" class="ai-loading-state">
+      <div class="ai-sparkles">✨</div>
+      <h3>ИИ сізге арнайы дайындық жоспарын құрып жатыр...</h3>
+      <p>Бұл бірнеше секунд алуы мүмкін</p>
+    </div>
     <!-- Top Section -->
     <section class="section-card">
       <button class="btn-back" @click="router.push('/vacancies')">

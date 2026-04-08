@@ -60,4 +60,9 @@ export const roadmapsApi = {
     const { data } = await axiosInstance.get('/roadmaps/my-ai-roadmaps');
     return data;
   },
+
+  async convertAiToStandard(customRoadmapId: string) {
+    const { data } = await axiosInstance.post('/roadmaps/convert-ai', { customRoadmapId });
+    return data;
+  }
 }

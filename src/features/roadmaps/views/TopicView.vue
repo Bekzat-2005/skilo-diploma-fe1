@@ -123,19 +123,22 @@ const startTimer = () => {
 }
 
 const startTest = async () => {
-
   await loadTest()
 
-  if (!test.value?.questions?.length || 0) return
+  // 1. ЖАҢА ҚОРҒАУ КОДЫ: Егер сұрақтар жоқ болса немесе бос болса
+  if (!test.value || !test.value.questions || test.value.questions.length === 0) {
+    alert("Сұрақтар жүктелмеді. AI сервері бос жауап қайтарды. Сәлден соң қайта көріңіз.");
+    return; // Тестті бастамай, осы жерден тоқтатамыз!
+  }
 
+  // 2. Егер бәрі жақсы болса, тестті бастаймыз
   testStarted.value = true
   selectedAnswers.value = []
   testFinished.value = false
   score.value = 0
   currentQuestionIndex.value = 0
-  remainingSeconds.value = (test.value?.questions?.length || 0) * 45
+  remainingSeconds.value = test.value.questions.length * 45
   startTimer()
-
 }
 
 const nextQuestion = () => {

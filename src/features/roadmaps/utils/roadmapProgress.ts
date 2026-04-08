@@ -57,56 +57,33 @@ const mapListWithProgress = (
   })
 }
 
-// features/roadmaps/utils/roadmapProgress.ts
+export const mapRoadmapTreeWithProgress = (nodes: any[], isParentUnlocked = true) => {
+  if (!nodes || !Array.isArray(nodes)) return [];
 
-export const mapRoadmapTreeWithProgress = (nodes: any[], backendProgress: any[]) => {
-  // Алдыңғы тақырыптың біткен-бітпегенін бақылайтын флаг.
-  // Ең бірінші тақырып әрқашан ашық болуы үшін true-дан бастаймыз.
-  let isPathBlocked = false; 
+  // Бірінші тақырып әрдайым ашық болуы үшін бастапқы мәнді true жасаймыз
+  let isPreviousCompleted = true; 
 
-  const getTopicStatus = (nodeId: string) => {
-    // 1. Бэкенд прогресін тексеру
-    const bProgress = backendProgress.find((p: any) => p.nodeId === nodeId);
-    if (bProgress?.status === 'completed') return 'completed';
+  return nodes.map((node) => {
+    let currentStatus = node.status || 'locked';
 
-    // 2. LocalStorage (жаңа ғана тапсырылған тест) тексеру
-    const raw = localStorage.getItem("topic_test_results");
-    if (raw) {
-      const localResults = JSON.parse(raw);
-      if (localResults[nodeId]?.passed) return 'completed';
+    // ЕГЕР ата-анасы ашық болса ЖӘНЕ алдыңғы тақырып біткен болса, БІРАҚ бұл тақырып 'locked' болып тұрса:
+    if (isParentUnlocked && isPreviousCompleted && currentStatus === 'locked') {
+      currentStatus = 'not_started';
     }
 
-    return 'not_started';
-  };
+    // Келесі тақырыпты ашу үшін осының статусын тексереміз
+    isPreviousCompleted = currentStatus === 'completed';
 
-  const transform = (list: any[]): any[] => {
-    return list.map((node) => {
-      const currentStatus = getTopicStatus(node.id);
-      
-      // Егер жол бұғатталған болса, бұл түйін құлыптаулы (locked)
-      const locked = isPathBlocked;
+    const isLocked = currentStatus === 'locked';
 
-      // Егер бұл жапырақ (нақты сабақ) болса және ол бітпеген болса, 
-      // келесі келетін барлық тақырыптарды бұғаттаймыз
-      const isLesson = !node.children || node.children.length === 0;
-      if (isLesson && currentStatus !== 'completed') {
-        isPathBlocked = true;
-      }
-
-      // Ішкі элементтері болса, оларды да өңдейміз (Рекурсия)
-      let children = [];
-      if (node.children && node.children.length > 0) {
-        children = transform(node.children);
-      }
-
-      return {
-        ...node,
-        status: locked ? 'locked' : currentStatus,
-        locked: locked,
-        children: children
-      };
-    });
-  };
-
-  return transform(nodes);
+    return {
+      ...node,
+      status: currentStatus,
+      locked: isLocked,
+      // Ішкі тақырыптарды (children) өңдегенде, осы ата-ананың құлыпталмағанын (isLocked емес екенін) береміз
+      children: node.children && node.children.length > 0 
+        ? mapRoadmapTreeWithProgress(node.children, !isLocked) 
+        : []
+    };
+  });
 };

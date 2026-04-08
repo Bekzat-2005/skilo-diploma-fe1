@@ -10,10 +10,17 @@ import RoadmapListNode from "@/features/roadmaps/components/RoadmapListNode.vue"
 
 type RoadmapViewMode = "skill_tree" | "classic_list"
 const VIEW_MODE_KEY = "roadmap_view_mode"
+const rawTreeData = ref<any[]>([])
+const backendProgressData = ref<any[]>([]) // Бэкендтен келген прогресс үшін
+// RoadmapDetailView.vue ішіндегі computed бөлімі
 
+// RoadmapDetailView.vue ішінде осы бөлікті тауып, ауыстырыңыз:
 
-
-const roadmapTreeData = ref<any[]>([])
+const roadmapTreeData = computed(() => {
+  // Екінші аргументті (backendProgressData) алып тастаңыз!
+  // Тек rawTreeData.value қалуы керек.
+  return mapRoadmapTreeWithProgress(rawTreeData.value)
+})
 const loading = ref(true)
 const route = useRoute()
 const roadmapId = route.params.id as string
@@ -29,16 +36,16 @@ const roadmap = computed(() => ({
 onMounted(async () => {
   loading.value = true
   try {
-    // Бэкендтен ағаш құрылымын және прогрессті қатар аламыз
-    const [treeResponse] = await Promise.all([
-      roadmapsApi.getRoadmapTree()
+    const [treeResponse, progressResponse] = await Promise.all([
+      roadmapsApi.getRoadmapTree(),
+      roadmapsApi.getRoadmapProgress()
     ])
 
-    // Roadmap-қа тиісті тақырыптарды алу
-    const rawNodes = treeResponse[roadmapId] || []
-    
-    // Егер бэкендтен статус келсе, оны интерфейске бейімдейміз
-    roadmapTreeData.value = rawNodes;
+    // МАҢЫЗДЫ: Бэкендтен не келіп жатқанын консольге шығарамыз!
+    console.log("Бэкендтен келген АҒАШ:", treeResponse[roadmapId]);
+
+    rawTreeData.value = treeResponse[roadmapId] || []
+    backendProgressData.value = progressResponse || [] 
     
   } catch (e) {
     console.error("Roadmap жүктеу қатесі:", e)

@@ -330,6 +330,20 @@ const handleAiGenerate = async () => {
     aiLoading.value = false;
   }
 };
+
+const handleAddAiTrack = async (customRoadmapId: string) => {
+  try {
+    const userId = authStore.user?.id || null; // Қолданушының ID-ін аламыз
+    
+    // Стордағы жаңа функцияны шақырамыз
+    await roadmapsStore.addGeneratedAiRoadmap(customRoadmapId, userId);
+    
+    alert("Жаңа бағыт 'Мои направления' тізіміне сәтті қосылды!");
+    
+  } catch (error) {
+    alert("Қосу кезінде қате кетті. Серверді тексеріңіз.");
+  }
+}
 </script>
 
 <template>
@@ -525,6 +539,10 @@ const handleAiGenerate = async () => {
             <h4>{{ track.title }}</h4>
             <p>{{ track.goal }}</p>
             <span class="badge">{{ new Date(track.createdAt).toLocaleDateString() }}</span>
+            <button @click="handleAddAiTrack(track.id)" class="btn-add-track">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14m-7-7v14"/></svg>
+              Мои направления қатарына қосу
+            </button>
           </article>
         </div>
       </div>
@@ -621,6 +639,54 @@ const handleAiGenerate = async () => {
 </template>
 
 <style scoped>
+
+/* Карточка ішіндегі батырмаға арналған стиль */
+.saved-track-card .btn-add-track {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%; /* Карточканың еніне қарай созылады */
+  margin-top: 16px;
+  padding: 10px 16px;
+  
+  /* Түстер мен дизайн (жобаның негізгі айнымалыларымен) */
+  background-color: var(--primary); /* Негізгі көк немесе күлгін түс */
+  color: #ffffff;
+  border: none;
+  border-radius: 10px;
+  
+  /* Мәтін стилі */
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+/* Ховер эффекті (үстіне апарғанда) */
+.saved-track-card .btn-add-track:hover {
+  filter: brightness(1.1); /* Түсті сәл ашады */
+  transform: translateY(-1px); /* Сәл жоғары көтеріледі */
+  box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.2);
+}
+
+/* Басқан кездегі эффект */
+.saved-track-card .btn-add-track:active {
+  transform: translateY(0);
+}
+
+/* Егер батырма ішіндегі иконка болса */
+.saved-track-card .btn-add-track svg {
+  flex-shrink: 0;
+}
+
+/* Адаптивтілік: ұялы телефонда батырма ыңғайлы болуы үшін */
+@media (max-width: 480px) {
+  .saved-track-card .btn-add-track {
+    font-size: 13px;
+    padding: 12px;
+  }
+}
 /* ── Reset & Base ── */
 .page {
   font-family: inherit;

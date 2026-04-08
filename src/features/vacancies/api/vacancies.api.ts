@@ -13,7 +13,9 @@ export const vacanciesApi = {
   getVacancyRealTasks: (id: string, userId: number | null) => api.getVacancyRealTasks(id, userId),
   getVacancyTaskLeaderboard: (id: string, userId: number | null) => api.getVacancyTaskLeaderboard(id, userId),
   submitVacancyTask: (vacancyId: string, taskId: string, payload: VacancyTaskSubmissionPayload, userId: number | null) => 
-    api.submitVacancyTask(vacancyId, taskId, payload, userId)
+    api.submitVacancyTask(vacancyId, taskId, payload, userId),
+
+  generateAIPrep: (id: string) => api.generateAIPrep(id),
 }
 
 // Типтерді қайта экспорттау (компонент қате бермеуі үшін)

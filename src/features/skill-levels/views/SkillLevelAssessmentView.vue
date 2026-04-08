@@ -10,6 +10,7 @@ const skillLevelsStore = useSkillLevelsStore()
 const selectedRoadmapId = ref("frontend")
 const isLoading = ref(false)
 const isSubmitting = ref(false)
+const isTestStarted = ref(false) // ЖАҢА: Тесттің басталғанын қадағалайтын айнымалы
 const submitMessage = ref("")
 
 const theoryQuestions = ref<any[]>([])
@@ -53,38 +54,29 @@ const resetCurrentAnswers = () => {
   submitMessage.value = ""
 }
 
-// ЖАҢА: Қайта тапсыру логикасы
-const retakeTest = () => {
-  skillLevelsStore.clearLevel(selectedRoadmapId.value) 
-  loadQuestions(selectedRoadmapId.value, true) // "true" AI-ды мәжбүрлі түрде іске қосады
+// ЖАҢА: 1. Бет жүктелгенде тек базадағы деңгейлерді синхрондау (ИИ-ға тиіспейміз)
+const syncSkillLevels = async () => {
+  try {
+    const dbLevels = await api.getUserSkillLevels()
+    dbLevels.forEach((level: any) => skillLevelsStore.setLevel(level))
+  } catch (error) {
+    console.error("Деңгейлерді алу қатесі:", error)
+  }
 }
 
-const loadQuestions = async (roadmapId: string, forceRetake = false) => {
-  if (!roadmapId) return
+// ЖАҢА: 2. Қолданушы "Начать тест" басқанда ИИ-ден тест сұрау
+const startTest = async () => {
+  if (!selectedRoadmapId.value) return
 
   try {
+    isTestStarted.value = true
     isLoading.value = true
-
-    // 1-ШЕШІМ: Бэкендтен БАЗАДАҒЫ деңгейлерді тартып алып, Store-ды жаңартамыз
-    if (!forceRetake) {
-      const dbLevels = await api.getUserSkillLevels()
-      dbLevels.forEach((level: any) => skillLevelsStore.setLevel(level))
-      
-      // Егер базада бұл бағыт бойынша деңгей сақталған болса, AI-ға сұраныс ЖІБЕРМЕЙМІЗ!
-      if (skillLevelsStore.getLevel(roadmapId)) {
-        theoryQuestions.value = []
-        writtenQuestions.value = []
-        return
-      }
-    }
-
-    // 2-ШЕШІМ: Ескі сұрақтарды тазартамыз
+    
     theoryQuestions.value = []
     writtenQuestions.value = []
     resetCurrentAnswers()
 
-    // 3. AI-дан жаңа тест сұраймыз
-    const data = await api.getAssessmentQuestions(roadmapId)
+    const data = await api.getAssessmentQuestions(selectedRoadmapId.value)
 
     if (data && data.theoryQuestions && data.writtenQuestions) {
       theoryQuestions.value = data.theoryQuestions.map((text: string, index: number) => ({
@@ -100,17 +92,27 @@ const loadQuestions = async (roadmapId: string, forceRetake = false) => {
     }
   } catch (error) {
     console.error("Сұрақтарды жүктеу қатесі:", error)
+    isTestStarted.value = false // Қате шықса, бастапқы қалпына қайтару
   } finally {
     isLoading.value = false
   }
 }
 
+// Қайта тапсыру логикасы
+const retakeTest = () => {
+  skillLevelsStore.clearLevel(selectedRoadmapId.value) 
+  startTest() 
+}
+
 onMounted(() => {
-  loadQuestions(selectedRoadmapId.value)
+  syncSkillLevels() // Тек базадан оқимыз
 })
 
-watch(selectedRoadmapId, (newId) => {
-  loadQuestions(newId)
+// ЖАҢА: Басқа бағытты (табты) басқанда терезені тазалап, бастапқы күйге келтіру
+watch(selectedRoadmapId, () => {
+  isTestStarted.value = false
+  theoryQuestions.value = []
+  writtenQuestions.value = []
 })
 
 const submitDirectionAssessment = async () => {
@@ -147,6 +149,7 @@ const submitDirectionAssessment = async () => {
     // Сәтті өткен соң сұрақтарды жасырамыз
     theoryQuestions.value = []
     writtenQuestions.value = []
+    isTestStarted.value = false // Тест бітті
 
   } catch (error) {
     console.error("Бағалау қатесі", error)
@@ -212,13 +215,23 @@ const submitDirectionAssessment = async () => {
           <button class="btn-secondary" @click="retakeTest">Тестті қайта тапсыру</button>
         </article>
 
-        <template v-else-if="selectedRoadmap && totalQuestions > 0">
+        <div v-else-if="!isTestStarted && selectedRoadmap" class="start-test-state" style="text-align: center; padding: 60px 20px;">
+          <h2 style="margin-bottom: 10px;">{{ selectedRoadmap.title }}</h2>
+          <p style="color: var(--muted); margin-bottom: 30px;">
+            Осы бағыт бойынша біліміңізді тексеріп, деңгейіңізді анықтау үшін тестті бастаңыз.
+          </p>
+          <button class="btn-primary" style="padding: 12px 24px; font-size: 16px;" @click="startTest">
+            Начать тест
+          </button>
+        </div>
+
+        <template v-else-if="isTestStarted && totalQuestions > 0">
           <header class="assessment-head">
-            <h2>{{ selectedRoadmap.title }}</h2>
-            <p>
-              Для этого направления: {{ theoryQuestions.length }} теоретических и
-              {{ writtenQuestions.length }} письменных вопросов.
-            </p>
+             <h2>{{ selectedRoadmap.title }}</h2>
+             <p>
+               Для этого направления: {{ theoryQuestions.length }} теоретических и
+               {{ writtenQuestions.length }} письменных вопросов.
+             </p>
           </header>
 
           <div class="progress-row">

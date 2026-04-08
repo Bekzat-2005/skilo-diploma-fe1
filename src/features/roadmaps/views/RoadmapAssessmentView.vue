@@ -15,19 +15,17 @@ const roadmap = computed(() => roadmapsStore.allRoadmaps.find(r => r.id === road
 
 const assessment = ref<any>(null)
 const loading = ref(true)
+const submitting = ref(false)
 
-const submitting = ref(false);
-
-const answers = ref<Record<string, number>>({})
+// Жауаптарды сақтау: { "сұрақ_тексті": "қолданушы_жауабы" }
+const answers = ref<Record<string, string>>({})
 const completed = ref(false)
 const detectedLevel = ref<RoadmapLevel | null>(null)
+const aiFeedback = ref("")
 
 onMounted(async () => {
-  // Алдымен барлық бағыттар жүктелгеніне көз жеткіземіз
   await roadmapsStore.loadAllRoadmaps()
-  
   try {
-    // Бэкендтен ассессмент (бастапқы тест) сұрақтарын алу
     assessment.value = await roadmapsApi.getAssessment(roadmapId)
   } catch (e) {
     console.error("Assessment жүктелмеді", e)
@@ -36,133 +34,147 @@ onMounted(async () => {
   }
 })
 
-const allAnswered = computed(() => {
-  if (!assessment.value?.questions) return false
-  return assessment.value.questions.every((q: any) => answers.value[q.id] !== undefined)
+// Сұрақтарды біріктіру (Теория + Жазбаша)
+const currentQuestions = computed(() => {
+  if (!assessment.value) return []
+  const theory = (assessment.value.theoryQuestions || []).map((q: any) => 
+    typeof q === 'string' ? { id: q, text: q, isWritten: true } : { ...q, isWritten: true }
+  )
+  const written = (assessment.value.writtenQuestions || []).map((q: any) => ({ ...q, isWritten: true }))
+  return [...theory, ...written]
 })
 
 const answeredCount = computed(() => {
-  if (!assessment.value?.questions) return 0
-  return assessment.value.questions.filter((q: any) => answers.value[q.id] !== undefined).length
+  return currentQuestions.value.filter(q => answers.value[q.id] && answers.value[q.id].trim().length > 5).length
+})
+
+const allAnswered = computed(() => {
+  return currentQuestions.value.length > 0 && answeredCount.value === currentQuestions.value.length
 })
 
 const submitAssessment = async () => {
-  if (!assessment.value || !allAnswered.value || submitting.value) return;
-
+  if (!allAnswered.value || submitting.value) return
+  
+  submitting.value = true
+  
   try {
-    submitting.value = true; // Жүктелуді бастау
+    // Бэкенд күтетін форматқа келтіру
+    const payload = {
+      writtenAnswers: currentQuestions.value.map(q => ({
+        question: q.text,
+        answer: answers.value[q.id]
+      }))
+    }
 
-    const response = await roadmapsApi.submitAssessment(roadmapId, answers.value);
-    detectedLevel.value = response.level;
+    const response = await roadmapsApi.submitAssessment(roadmapId, payload)
     
-    // Store-ға қосу (Тек локалдық жаңарту, өйткені бэкендте қосылып қойды)
-    await roadmapsStore.loadUserRoadmapCollection(authStore.user?.id ?? null);
-    await roadmapsStore.loadUserProgress(); // Прогресті де қайта жүктеу
+    detectedLevel.value = response.levelLabel || response.level
+    aiFeedback.value = response.feedback || ""
     
-    completed.value = true; // Сәтті аяқталды бетіне өту
+    if (authStore.user?.id) {
+      await roadmapsStore.loadUserRoadmapCollection(authStore.user.id)
+    }
+    completed.value = true
   } catch (error) {
-    console.error("Тестті жіберу кезінде қате шықты", error);
-    alert("Қате кетті. Қайта көріңіз."); // Пайдаланушыға ескерту
+    alert("ИИ талдау кезінде қате кетті. Қайта көріңіз.")
   } finally {
-    submitting.value = false; // Жүктелуді тоқтату
+    submitting.value = false
   }
-};
-
-const goToRoadmap = () => {
-  router.push(`/roadmaps/${roadmapId}`)
 }
+
+const goToRoadmap = () => router.push(`/roadmaps/${roadmapId}`)
 </script>
 
 <template>
   <div class="assessment-page">
-    <!-- Not found -->
-    <div v-if="!roadmap || !assessment" class="state-view">
-      <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--border)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>
-      <p>Оценка не найдена</p>
+    <div v-if="loading" class="state-view">Жүктелуде...</div>
+
+    <div v-else-if="submitting" class="state-view ai-processing">
+      <div class="ai-orb"></div>
+      <h2>ИИ сіздің жауаптарыңызды талдауда...</h2>
+      <p>Біз сіздің деңгейіңізді анықтап, оқу бағдарламасын дайындап жатырмыз.</p>
     </div>
 
-    <!-- Assessment Form -->
     <div v-else-if="!completed" class="section-card">
       <header class="form-header">
-        <h1>{{ roadmap.title }}</h1>
-        <p>Ответьте на несколько вопросов, чтобы определить ваш текущий уровень</p>
+        <h1>{{ roadmap?.title }}</h1>
+        <p>Келесі сұрақтарға жазбаша жауап беріңіз. ИИ сіздің біліміңізді бағалайды.</p>
+        
+        <div class="progress-bar-wrap">
+          <div class="progress-info">
+            <span>{{ answeredCount }} / {{ currentQuestions.length }} сұраққа жауап берілді</span>
+          </div>
+          <div class="progress-track">
+            <span :style="{ width: `${(answeredCount / currentQuestions.length) * 100}%` }" />
+          </div>
+        </div>
       </header>
 
-      <div class="progress-bar-wrap">
-        <div class="progress-info">
-          <span>{{ answeredCount }} из {{ assessment.questions.length }}</span>
-          <span v-if="allAnswered" class="ready-badge">Готово к отправке</span>
-        </div>
-        <div class="progress-track">
-          <span :style="{ width: `${(answeredCount / assessment.questions.length) * 100}%` }" />
-        </div>
-      </div>
-
       <div class="questions-list">
-        <article
-          v-for="(question, qi) in assessment.questions"
-          :key="question.id"
-          class="question-card"
-          :class="{ answered: answers[question.id] !== undefined }"
-        >
+        <article v-for="(question, index) in currentQuestions" :key="index" class="question-card">
           <div class="question-head">
-            <span class="question-num">{{ qi + 1 }}</span>
+            <span class="question-num">{{ index + 1 }}</span>
             <p class="question-text">{{ question.text }}</p>
           </div>
-
-          <div class="options-list">
-            <label
-              v-for="option in question.options"
-              :key="option.id"
-              class="option-label"
-              :class="{ selected: answers[question.id] === option.score }"
-            >
-              <input
-                :name="question.id"
-                type="radio"
-                :value="option.score"
-                v-model="answers[question.id]"
-                class="sr-only"
-              />
-              <span class="option-radio" />
-              {{ option.label }}
-            </label>
+          
+          <div class="answer-area">
+            <textarea
+              v-model="answers[question.id]"
+              class="answer-textarea"
+              :placeholder="question.placeholder || 'Жауабыңызды осында жазыңыз...'"
+            ></textarea>
+            <small v-if="question.hint" class="hint-text">Көмек: {{ question.hint }}</small>
           </div>
         </article>
       </div>
 
       <div class="submit-row">
-        <button
-          class="btn-primary"
-          :class="{ disabled: !allAnswered || submitting }"
-          :disabled="!allAnswered || submitting"
+        <button 
+          class="btn-primary" 
+          :disabled="!allAnswered"
           @click="submitAssessment"
         >
-          {{ submitting ? 'Сақталуда...' : 'Добавить направление' }}
-          <svg v-if="!submitting" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+          Нәтижені алу
         </button>
       </div>
     </div>
 
-    <!-- Result -->
     <div v-else class="section-card result-card">
-      <div class="result-icon">
-        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-      </div>
-      <h2>Направление добавлено</h2>
-      <p>
-        Определённый уровень для <strong>{{ roadmap.title }}</strong>:
-      </p>
+      <div class="result-icon">✓</div>
+      <h2>Талдау аяқталды</h2>
+      <p>Сіздің деңгейіңіз:</p>
       <span class="level-pill">{{ detectedLevel }}</span>
-      <button class="btn-primary" @click="goToRoadmap">
-        Открыть roadmap
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
-      </button>
+      <p v-if="aiFeedback" class="ai-feedback">"{{ aiFeedback }}"</p>
+      <button class="btn-primary" @click="goToRoadmap">Roadmap-қа өту</button>
     </div>
   </div>
 </template>
 
 <style scoped>
+.ai-processing { text-align: center; padding: 60px 20px; }
+.ai-orb {
+  width: 60px; height: 60px; margin: 0 auto 20px;
+  border-radius: 50%;
+  background: linear-gradient(45deg, var(--primary), #8e44ad);
+  box-shadow: 0 0 20px var(--primary);
+  animation: pulse 1.5s infinite ease-in-out;
+}
+@keyframes pulse { 
+  0% { transform: scale(0.9); opacity: 0.7; }
+  50% { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.7; }
+}
+.answer-textarea {
+  width: 100%; min-height: 120px; padding: 15px;
+  border-radius: 12px; border: 1px solid var(--border);
+  background: var(--surface-soft); color: var(--text);
+  font-family: inherit; font-size: 15px; resize: vertical;
+  transition: border-color 0.3s;
+}
+.answer-textarea:focus { border-color: var(--primary); outline: none; }
+.hint-text { display: block; margin-top: 8px; color: var(--muted); font-style: italic; }
+.ai-feedback { margin-top: 15px; font-style: italic; color: var(--muted); padding: 0 20px; }
+/* Қалған стильдер сіздікі... */
 .assessment-page {
   max-width: 680px;
   margin: 0 auto;
