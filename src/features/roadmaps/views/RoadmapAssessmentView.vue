@@ -22,6 +22,7 @@ const answers = ref<Record<string, string>>({})
 const completed = ref(false)
 const detectedLevel = ref<RoadmapLevel | null>(null)
 const aiFeedback = ref("")
+const personalRoadmapId = ref<string | null>(null) // Жаңа ID үшін айнымалы
 
 onMounted(async () => {
   await roadmapsStore.loadAllRoadmaps()
@@ -54,11 +55,9 @@ const allAnswered = computed(() => {
 
 const submitAssessment = async () => {
   if (!allAnswered.value || submitting.value) return
-  
   submitting.value = true
   
   try {
-    // Бэкенд күтетін форматқа келтіру
     const payload = {
       writtenAnswers: currentQuestions.value.map(q => ({
         question: q.text,
@@ -71,8 +70,15 @@ const submitAssessment = async () => {
     detectedLevel.value = response.levelLabel || response.level
     aiFeedback.value = response.feedback || ""
     
+    // МАҢЫЗДЫ: Бэкендтен келген жаңа жеке ID-ді сақтаймыз
+    personalRoadmapId.value = response.personalRoadmapId 
+
     if (authStore.user?.id) {
+      // Сторды толық жаңарту (өйткені жаңа карта пайда болды, ескісі өшті)
+      roadmapsStore.allRoadmapsLoaded = false 
+      await roadmapsStore.loadAllRoadmaps()
       await roadmapsStore.loadUserRoadmapCollection(authStore.user.id)
+      await roadmapsStore.loadUserProgress()
     }
     completed.value = true
   } catch (error) {
@@ -82,7 +88,11 @@ const submitAssessment = async () => {
   }
 }
 
-const goToRoadmap = () => router.push(`/roadmaps/${roadmapId}`)
+// Бұл жерді өзгерт: егер personalRoadmapId болса, соған жібер
+const goToRoadmap = () => {
+  const targetId = personalRoadmapId.value || roadmapId
+  router.push(`/roadmaps/${targetId}`)
+}
 </script>
 
 <template>

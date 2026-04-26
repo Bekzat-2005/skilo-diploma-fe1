@@ -7,11 +7,9 @@ export const roadmapsApi = {
     return data
   },
 
-  async submitAssessment(roadmapId: string, answers: any) {
-    const { data } = await axiosInstance.post(`/roadmaps/${roadmapId}/assessment/submit`, {
-      answers
-    })
-    return data
+  async submitAssessment(roadmapId: string, payload: any) { // 'answers' дегенді 'payload' деп өзгерттік (түсінікті болу үшін)
+    const { data } = await axiosInstance.post(`/roadmaps/${roadmapId}/assessment/submit`, payload); // { answers: payload } емес, жай payload
+    return data;
   },
 
   async getUserRoadmapCollection() {

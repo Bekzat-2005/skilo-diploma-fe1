@@ -4,49 +4,57 @@ import { useRoute, useRouter } from "vue-router"
 import { axiosInstance } from "@/shared/api/client"
 import { useTopicProgressStore } from "@/features/roadmaps/store/topicProgress"
 
-
-
 const route = useRoute()
 const router = useRouter()
 const topicProgress = useTopicProgressStore()
 
 const topic = ref<any>(null)
-
-const topicId = route.params.id as string
-onMounted(async () => {
-  try {
-
-    const { data } = await axiosInstance.get(`/topics/${topicId}`)
-
-    topic.value = data
-
-  } catch (e) {
-
-    console.error("Topic load error:", e)
-
-  }
-})
-
 const test = ref<any>(null)
 
+const isLoading = ref(true)
+const isGenerating = ref(false)
+
+const topicId = route.params.id as string
+
 const loadTest = async () => {
-
   try {
-
     const { data } = await axiosInstance.get(`/topics/${topicId}/test`)
-
-    console.log("TEST DATA:", data)
-
     test.value = data
-
   } catch (e) {
-
     console.error("test load error", e)
-
   }
-
 }
 
+// TopicView.vue ішіндегі onMounted-ті осылай ауыстыр:
+onMounted(async () => {
+  try {
+    isLoading.value = true
+    
+    // 1. Тақырыпты (теорияны) жүктейміз
+    const { data } = await axiosInstance.get(`/topics/${topicId}`)
+    topic.value = data
+
+    // 2. Егер теория жоқ болса, генерацияны күтеміз
+    if (!topic.value?.theory || topic.value.theory === "Мазмұн уақытша қолжетімсіз.") {
+      isGenerating.value = true
+      // Мұнда /test-ті емес, теорияны алу арқылы ИИ-ді бір-ақ рет шақырамыз
+      // Себебі бэкендте generateTopicContent теорияны да, тестті де бірден жасайды
+      await loadTest() // Тестті жүктейміз (ол ИИ-ді іске қосады)
+      
+      const updated = await axiosInstance.get(`/topics/${topicId}`)
+      topic.value = updated.data
+    } else {
+      // Егер теория бар болса, тестті жай ғана фонда жүктейміз
+      await loadTest()
+    }
+
+  } catch (e) {
+    console.error("Жүктеу қатесі:", e)
+  } finally {
+    isLoading.value = false
+    isGenerating.value = false
+  }
+})
 const testStarted = ref(false)
 const selectedAnswers = ref<number[]>([])
 const testFinished = ref(false)
@@ -61,11 +69,9 @@ const topicStatusLabel = computed(() => {
   if (testFinished.value) {
     return score.value >= 70 ? "Пройдено" : "Не пройдено"
   }
-
   if (persistedResult.value) {
     return persistedResult.value.passed ? "Пройдено" : "Не пройдено"
   }
-
   return "Не тестировалось"
 })
 
@@ -76,15 +82,15 @@ const topicStatusClass = computed(() => {
   return "status--neutral"
 })
 
-const totalQuestions = computed(() => test?.questions?.length ?? 0)
+const totalQuestions = computed(() => test.value?.questions?.length ?? 0)
 
 const currentQuestion = computed(() => {
-  if (!test) return null
+  if (!test.value) return null
   return test.value.questions[currentQuestionIndex.value] ?? null
 })
 
 const isLastQuestion = computed(() => {
-  if (!test) return false
+  if (!test.value) return false
   return currentQuestionIndex.value >= (test.value?.questions?.length || 0) - 1
 })
 
@@ -109,7 +115,6 @@ const clearTimer = () => {
 
 const startTimer = () => {
   clearTimer()
-
   timerId = window.setInterval(() => {
     if (remainingSeconds.value <= 1) {
       remainingSeconds.value = 0
@@ -117,21 +122,23 @@ const startTimer = () => {
       finishTest()
       return
     }
-
     remainingSeconds.value -= 1
   }, 1000)
 }
 
 const startTest = async () => {
-  await loadTest()
-
-  // 1. ЖАҢА ҚОРҒАУ КОДЫ: Егер сұрақтар жоқ болса немесе бос болса
-  if (!test.value || !test.value.questions || test.value.questions.length === 0) {
-    alert("Сұрақтар жүктелмеді. AI сервері бос жауап қайтарды. Сәлден соң қайта көріңіз.");
-    return; // Тестті бастамай, осы жерден тоқтатамыз!
+  // Егер қандай да бір себеппен тест жүктелмей қалса ғана күтеміз
+  if (!test.value) {
+    isGenerating.value = true
+    await loadTest()
+    isGenerating.value = false
   }
 
-  // 2. Егер бәрі жақсы болса, тестті бастаймыз
+  if (!test.value || !test.value.questions || test.value.questions.length === 0) {
+    alert("Сұрақтар жүктелмеді. AI сервері бос жауап қайтарды. Сәлден соң қайта көріңіз.");
+    return;
+  }
+
   testStarted.value = true
   selectedAnswers.value = []
   testFinished.value = false
@@ -142,7 +149,7 @@ const startTest = async () => {
 }
 
 const nextQuestion = () => {
-  if (!test || !isCurrentQuestionAnswered.value || isLastQuestion.value) return
+  if (!test.value || !isCurrentQuestionAnswered.value || isLastQuestion.value) return
   currentQuestionIndex.value += 1
 }
 
@@ -151,7 +158,6 @@ const finishTest = async () => {
 
   clearTimer();
 
-  // 1. Дұрыс жауаптарды есептеу
   let correct = 0;
   test.value.questions.forEach((q: any, index: number) => {
     if (selectedAnswers.value[index] === q.correctIndex) {
@@ -159,25 +165,18 @@ const finishTest = async () => {
     }
   });
 
-  // 2. Пайызды шығару
-  const totalQuestions = test.value.questions.length;
-  const percentage = Math.round((correct / totalQuestions) * 100);
+  const total = test.value.questions.length;
+  const percentage = Math.round((correct / total) * 100);
 
-  // 3. UI-ды жаңарту
   score.value = percentage;
   testFinished.value = true;
 
   try {
-    // 4. Бэкендке пайызды жіберу
     const { data } = await axiosInstance.post(`/topics/${topicId}/submit`, {
       score: percentage
     });
-
-    // 5. Локалды Store-ды жаңарту (прогресс бірден көрінуі үшін)
     topicProgress.setResult(topicId, percentage, percentage >= 70);
-
     console.log("Progress saved:", data.status);
-    
   } catch (e) {
     console.error("Нәтижені сақтау мүмкін болмады:", e);
   }
@@ -188,7 +187,6 @@ const goBack = () => {
     router.back()
     return
   }
-
   router.push("/roadmaps")
 }
 
@@ -202,19 +200,28 @@ onBeforeUnmount(() => {
 
     <button class="btn btn--ghost" @click="goBack">← Назад</button>
 
-    <!-- Tabs -->
     <div class="topic-tabs">
       <router-link class="topic-tab" :to="`/topics/${topicId}`">Обучение и тест</router-link>
       <router-link class="topic-tab" :to="`/topics/${topicId}/interview`">Вопросы интервью</router-link>
     </div>
 
-    <div v-if="!topic" class="empty-state">
+    <div v-if="isLoading && !isGenerating" class="empty-state">
+      <h2>Жүктелуде...</h2>
+    </div>
+
+    <div v-else-if="isGenerating" class="empty-state" style="text-align: center; padding: 40px;">
+      <h2 style="margin-bottom: 10px;">🤖 ИИ материалдарды дайындауда...</h2>
+      <p style="color: #666; max-width: 400px; margin: 0 auto;">
+        Бұл 10-15 секунд уақыт алуы мүмкін. Сізге арнайы теория мен тест сұрақтары құрастырылып жатыр, күте тұрыңыз.
+      </p>
+    </div>
+
+    <div v-else-if="!topic" class="empty-state">
       <h2>Тема не найдена</h2>
     </div>
 
     <div v-else class="topic-body">
-
-      <!-- Topic header -->
+      
       <div class="topic-header">
         <div class="topic-header-main">
           <h1 class="topic-title">{{  topic?.title }}</h1>
@@ -225,18 +232,13 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <!-- THEORY -->
-      <section v-if="!testStarted" class="section-card">
+      <section v-if="!testStarted && topic?.theory" class="section-card">
         <span class="section-label">Теория</span>
         <div class="theory-content">
-          <pre class="theory-pre">{{ topic?.theory }}</pre>
+          <pre class="theory-pre">{{ topic.theory }}</pre>
         </div>
         <div class="section-footer">
-          <button
-            class="btn btn--primary"
-          
-            @click="startTest"
-          >
+          <button class="btn btn--primary" @click="startTest">
             Начать тест
           </button>
         </div>

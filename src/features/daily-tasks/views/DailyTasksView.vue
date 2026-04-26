@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue"
+import { computed, onMounted,onUnmounted, ref } from "vue"
 import { useDailyTasksStore, type DailyTaskItem } from "@/features/daily-tasks/store/dailyTasks"
 
 type TaskFilter = "all" | "pending" | "completed"
@@ -158,7 +158,10 @@ const submitTaskTest = async () => {
 }
 
 onMounted(() => {
-  dailyTasksStore.ensureTodayTasks()
+  dailyTasksStore.startPolling()
+})
+onUnmounted(() => {
+  dailyTasksStore.stopPolling()
 })
 </script>
 
@@ -192,6 +195,15 @@ onMounted(() => {
         </article>
       </div>
     </section>
+    <transition name="fade">
+      <section v-if="dailyTasksStore.isGenerating" class="generating-note">
+        <div class="ai-loader"></div>
+        <div class="note-content">
+          <p><strong>ИИ ваши тесты готовит...</strong></p>
+          <p>Подождите немного, новые задания появятся автоматически каждые 15-20 секунд.</p>
+        </div>
+      </section>
+    </transition>
 
     <section class="flow-note info-flow">
       <p>Короткая ежедневная сессия помогает закреплять темы быстрее, чем редкие длинные подходы.</p>
@@ -350,6 +362,46 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.generating-note {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  background: var(--surface-soft);
+  border: 1px dashed var(--primary);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.ai-loader {
+  width: 24px;
+  height: 24px;
+  border: 3px solid var(--primary-soft);
+  border-top: 3px solid var(--primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.note-content p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.note-content strong {
+  color: var(--primary);
+}
+
+.fade-enter-active, .fade-leave-active {
+  transition: opacity 0.5s;
+}
+.fade-enter-from, .fade-leave-to {
+  opacity: 0;
+}
 .daily-page {
   max-width: 1100px;
   margin: 0 auto;

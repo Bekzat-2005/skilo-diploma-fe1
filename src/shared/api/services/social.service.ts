@@ -55,5 +55,10 @@ export const createSocialService = (axios: AxiosInstance) => ({
 
   async completeFriendChallenge(userId: number | null, challengeId: string, payload: any): Promise<void> {
     await axios.post(`/friends/challenges/complete`, payload);
-  }
+  },
+  
+  async searchUsers(query: string): Promise<FriendProfile[]> {
+    const res = await axios.get(`/friends/search?q=${query}`);
+    return res.data;
+  },
 });

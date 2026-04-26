@@ -19,7 +19,9 @@ const isAiLoading = ref(false)
 const loading = ref(true)
 const saving = ref(false)
 const error = ref<string | null>(null)
-const addEmail = ref("")
+const searchQuery = ref("")
+const searchResults = ref<any[]>([])
+let searchTimeout: ReturnType<typeof setTimeout> | null = null
 const addError = ref<string | null>(null)
 
 const friends = ref<FriendProfile[]>([])
@@ -72,6 +74,32 @@ const radarPalette = [
   { stroke: "#1f9d9d", fill: "rgba(31, 157, 157, 0.22)" }
 ]
 const activeRadarUserId = ref<number | null>(null)
+
+
+const onSearchInput = () => {
+  if (searchTimeout) clearTimeout(searchTimeout)
+  
+  if (searchQuery.value.trim().length < 1) {
+    searchResults.value = []
+    return
+  }
+
+  // 300 миллисекунд күтіп барып бекэндке сұраныс жібереміз
+  searchTimeout = setTimeout(async () => {
+    try {
+      // API-де searchUsers бар екеніне көз жеткізіңіз
+      searchResults.value = await friendsApi.searchUsers(searchQuery.value)
+    } catch (e) {
+      console.error("Іздеу қатесі", e)
+    }
+  }, 300)
+}
+
+const selectUser = async (email: string) => {
+  searchQuery.value = email 
+  searchResults.value = [] // Тізімді жасырамыз
+  addError.value = null;
+}
 
 const ensureChallengeRoadmapSelection = () => {
   const defaultRoadmapId = roadmapRows.value[0]?.roadmapId
@@ -135,9 +163,10 @@ const refreshMap = async () => {
   ensureChallengeRoadmapSelection()
 }
 
-const addFriend = async () => {
+const addFriend = async (emailToInvite?: string) => {
   addError.value = null
-  const email = addEmail.value.trim()
+  // Егер emailToInvite берілмесе, searchQuery ішіндегі мәнді аламыз
+  const email = typeof emailToInvite === 'string' ? emailToInvite.trim() : searchQuery.value.trim()
   if (!email) return
 
   try {
@@ -147,7 +176,8 @@ const addFriend = async () => {
     suggestions.value = await friendsApi.getFriendSuggestions(userId)
     await refreshMap()
     await loadChallenges(userId)
-    addEmail.value = ""
+    searchQuery.value = "" // Сәтті қосылған соң input-ты тазалаймыз
+    searchResults.value = [] 
   } catch (err) {
     addError.value = resolveApiError(err, "Не удалось добавить друга").message
   } finally {
@@ -156,8 +186,8 @@ const addFriend = async () => {
 }
 
 const addSuggestedFriend = async (email: string) => {
-  addEmail.value = email
-  await addFriend()
+  searchQuery.value = email
+  await addFriend(email)
 }
 
 const removeFriend = async (friendUserId: number) => {
@@ -472,9 +502,6 @@ const closeChallengeQuiz = (options: { keepGlobalError?: boolean } = {}) => {
   void exitChallengeFullscreen()
 }
 
-// FriendsView.vue ішіндегі осы функцияны толық ауыстырыңыз:
-
-// Осы функцияны мынаған ауыстырыңыз:
 const openChallengeQuiz = async (participantUserId: number) => {
   const roadmapId = getChallengeRoadmapId(participantUserId)
   const roadmap = roadmapRows.value.find((item) => item.roadmapId === roadmapId)
@@ -668,18 +695,38 @@ onBeforeUnmount(() => {
       <aside class="network-panel">
         <section class="panel-block">
           <p class="section-title">Добавить друга</p>
-          <div class="add-row">
-            <input
-              v-model="addEmail"
-              type="email"
-              placeholder="Введите email пользователя"
-              :disabled="saving"
-            />
-            <button class="primary" :disabled="saving || !addEmail.trim()" @click="addFriend">
-              {{ saving ? "Добавление..." : "Добавить" }}
-            </button>
+          <div class="search-wrapper">
+            <div class="add-row">
+              <input
+                v-model="searchQuery"
+                type="text"
+                placeholder="Поиск по имени или email..."
+                :disabled="saving"
+                @input="onSearchInput"
+              />
+              <button class="primary" :disabled="saving || !searchQuery?.trim()" @click="addFriend">
+                {{ saving ? "..." : "Добавить" }}
+              </button>
+            </div>
+
+            <div v-if="searchResults.length > 0" class="search-results-overlay">
+              <div 
+                v-for="user in searchResults" 
+                :key="user.userId" 
+                class="search-result-item"
+                @click="selectUser(user.email)"
+              >
+                <div class="user-meta">
+                  <div class="user-avatar">{{ user.avatar }}</div>
+                  <div class="user-details">
+                    <span class="user-name">{{ user.fullName }}</span>
+                    <span class="user-email">{{ user.email }}</span>
+                  </div>
+                </div>
+                <button type="button" class="select-badge">Выбрать</button>
+              </div>
+            </div>
           </div>
-          <p v-if="addError" class="error">{{ addError }}</p>
         </section>
 
         <section v-if="suggestions.length" class="panel-block">
@@ -974,6 +1021,97 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* Контейнерді позициялау үшін */
+.add-container {
+  position: relative;
+}
+
+.search-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: var(--surface); /* Қараңғы фон */
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px;
+  list-style: none;
+  margin: 0;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+}
+
+.search-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.search-item:hover {
+  background: var(--surface-soft);
+}
+
+.search-user-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.avatar-mini {
+  width: 32px;
+  height: 32px;
+  background: var(--primary);
+  color: white;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: bold;
+  font-size: 12px;
+}
+
+.search-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.search-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.search-email {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.select-btn {
+  background: transparent;
+  border: 1px solid var(--primary);
+  color: var(--primary);
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.2s;
+  opacity: 0.8;
+}
+
+.search-item:hover .select-btn {
+  background: var(--primary);
+  color: white;
+  opacity: 1;
+}
+
+/* Input фокуста тұрғанда стиль */
+.add-row input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.1);
+}
 .friends-page {
   max-width: 1180px;
   margin: 0 auto;

@@ -2,26 +2,62 @@
 import { computed, ref } from "vue"
 import { defineStore } from "pinia"
 import { axiosInstance } from "@/shared/api/client"
+import { useRoadmapsStore } from "@/features/roadmaps/store/roadmaps"
 
 export const useDailyTasksStore = defineStore("daily-tasks", () => {
   const todayTasks = ref<any[]>([])
   const isLoading = ref(false)
   const completedTodayCount = computed(() => todayTasks.value.filter(t => t.completed).length)
+  const isGenerating = ref(false)
+  let pollInterval: any = null
+  const roadmapsStore = useRoadmapsStore()
 
   const todayTotalPoints = computed(() => 
     todayTasks.value.reduce((sum, t) => sum + t.points, 0)
   )
 
   const fetchTodayTasks = async () => {
-    isLoading.value = true
+    const token = localStorage.getItem('token') // Немесе сіз авторизацияны қалай сақтайсыз?
+    if (!token) {
+      stopPolling() // Егер токен жоқ болса, таймерді де өшіріп тастаймыз
+      return
+    }
+    // Егер бірінші рет жүктелсе ғана isLoading қосамыз
+    if (todayTasks.value.length === 0) isLoading.value = true
+    
     try {
       const response = await axiosInstance.get("/daily-tasks")
       todayTasks.value = response.data
+
+      // Егер барлық тесттер әлі дайын болмаса (мысалы, roadmap санынан аз болса)
+      // Осы жерде "генерация жүріп жатыр" деп белгілейміз
+      // (Бұл логиканы жобаңызға қарай реттеңіз, мысалы 3-тен аз болса)
+      const totalExpected = roadmapsStore.myRoadmaps.length + 1
+      
+      // Егер келген тапсырмалар саны роадмаптар санынан аз болса, демек әлі генерация жүріп жатыр
+      isGenerating.value = todayTasks.value.length < totalExpected
+      
+      // Егер бәрі дайын болса, тексеруді тоқтатуға болады
+      if (!isGenerating.value && pollInterval) {
+        clearInterval(pollInterval)
+        pollInterval = null
+      }
     } catch (error) {
       console.error("Fetch error:", error)
-      todayTasks.value = []
     } finally {
       isLoading.value = false
+    }
+  }
+  const startPolling = () => {
+    if (pollInterval) return
+    fetchTodayTasks()
+    pollInterval = setInterval(fetchTodayTasks, 60000) // Әр 15 сек сайын тексеру
+  }
+
+  const stopPolling = () => {
+    if (pollInterval) {
+      clearInterval(pollInterval)
+      pollInterval = null
     }
   }
 
@@ -92,6 +128,9 @@ export const useDailyTasksStore = defineStore("daily-tasks", () => {
   }
 
   return {
+    isGenerating,
+    startPolling,
+    stopPolling,
     todayTasks,
     isLoading,
     globalTodayTask,
@@ -101,7 +140,7 @@ export const useDailyTasksStore = defineStore("daily-tasks", () => {
     earnedTodayPoints,
     completedTodayCount,
     todayTotalPoints,
-    ensureTodayTasks,
+    ensureTodayTasks: startPolling,
     fetchTodayTasks,
     submitTaskAnswer,
     getQuizForTask,

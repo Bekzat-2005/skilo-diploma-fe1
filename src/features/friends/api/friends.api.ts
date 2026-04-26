@@ -38,7 +38,10 @@ export const friendsApi = {
   // достар тізімінің соңына қосыңыз
   completeFriendChallenge(userId: number | null, challengeId: string, payload: any): Promise<void> {
     return api.completeFriendChallenge(userId, challengeId, payload)
-  }
+  },
+  searchUsers(query: string): Promise<FriendProfile[]> {
+    return api.searchUsers(query)
+  },
 }
 
 export type {
